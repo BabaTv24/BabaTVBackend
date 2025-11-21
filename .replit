@@ -1,12 +1,12 @@
 entrypoint = "index.js"
-modules = ["nodejs-22"]
+modules = ["nodejs-20"]
 hidden = [".config", "package-lock.json"]
 
 [gitHubImport]
 requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
 
 [nix]
-channel = "stable-24_11"
+channel = "stable-25_05"
 
 [deployment]
 run = ["node", "index.js"]
@@ -37,9 +37,13 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd backend && npm start"
+args = "npm start"
 waitForPort = 5000
 
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 35641
+externalPort = 3000
