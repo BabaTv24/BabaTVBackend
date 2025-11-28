@@ -1,16 +1,20 @@
 {
-  "name": "nodejs",
+  "name": "babatv-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "BabaTV24 Backend API",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
+    "dev": "node --watch index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["babatv", "api", "backend", "hono"],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@hono/node-server": "^1.19.6",
     "@supabase/supabase-js": "^2.81.1",

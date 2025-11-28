@@ -1,0 +1,162 @@
+Użyj poniższego polecenia w Replit Ghostwriter, aby rozbudować, naprawić i w pełni ukończyć mój backend „BabaTVBackend” zgodnie z aktualną strukturą projektu. Projekt jest modułowy, korzysta z Express.js + ESM + middleware + JWT login oraz folderów: /routes, /utils, /middleware, index.js. Zachowaj całą istniejącą logikę i dopisz brakujące moduły opisane poniżej. Używaj import/export (ESM). Upewnij się, że generowane pliki działają w Node.js na Render.com.
+
+🟣 CEL BACKENDU
+
+Utwórz kompletny backend API dla aplikacji BabaTV24, który obsługuje:
+
+Rejestrację, logowanie, JWT
+
+Panel Admina
+
+Aktywację 0.99 € (Stripe lub PayPal — placeholder)
+
+Kupony rabatowe
+
+HTML Banner Ads + Deep-Link Push Ads
+
+Testimonials
+
+Chat user ↔ admin
+
+Video Loop Manager (URL do streamu TV)
+
+Push notifications (Firebase WebPush)
+
+SMS notifications (Twilio/Vonage placeholder)
+
+User tagging + Premium toggle
+
+Public endpoints do frontendu (Next.js)
+
+Backend ma być kompatybilny z moją aktualną strukturą:
+
+backend/
+├── index.js
+├── routes/
+│   ├── auth.js
+│   ├── users.js
+│   ├── operators.js
+│   ├── payments.js
+│   ├── events.js
+│   ├── push.js
+├── utils/
+│   ├── supabase.js
+│   └── jwt.js
+├── middleware/
+│   └── authMiddleware.js
+├── package.json
+
+🟣 ZADANIA DLA REPLIT GHOSTWRITER
+👉 1) DODAJ NOWE ROUTERY DO /routes:
+
+Utwórz następujące pliki, w stylu ESM (import/export):
+
+routes/ads.js → zarządzanie HTML Banner Ads
+
+routes/coupons.js → kupony
+
+routes/testimonials.js → opinie klientów
+
+routes/sms.js → SMS API
+
+routes/chat.js → chat user↔admin
+
+routes/video.js → TV Loop Manager
+
+routes/admin.js → panel admina (toggle premium, tagi użytkowników)
+
+Każdy router ma eksportować domyślnie:
+
+import express from "express";
+const router = express.Router();
+export default router;
+
+👉 2) ROZBUDUJ index.js — DODAJ IMPORTY + ROUTING
+
+Dodaj:
+
+import adsRoutes from "./routes/ads.js";
+import couponsRoutes from "./routes/coupons.js";
+import testimonialsRoutes from "./routes/testimonials.js";
+import smsRoutes from "./routes/sms.js";
+import chatRoutes from "./routes/chat.js";
+import videoRoutes from "./routes/video.js";
+import adminRoutes from "./routes/admin.js";
+
+
+A następnie:
+
+app.use("/api/ads", adsRoutes);
+app.use("/api/coupons", couponsRoutes);
+app.use("/api/testimonials", testimonialsRoutes);
+app.use("/api/sms", smsRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/video", videoRoutes);
+app.use("/api/admin", adminRoutes);
+
+👉 3) ZACHOWAJ ISTNIEJĄCĄ LOGIKĘ
+
+Nie usuwaj żadnych routerów (auth, users, payments, events, operators, push).
+Tylko rozszerz backend o brakujące moduły.
+
+👉 4) DODAJ KOMPATYBILNE MIDDLEWARE
+
+Obsługa:
+
+JSON body
+
+CORS
+
+JWT middleware
+
+Error handler
+
+👉 5) DODAJ „IN-MEMORY” magazyn danych
+
+Backend nie używa bazy na start — dodaj proste struktury tablicowe:
+
+ads = []
+
+coupons = []
+
+testimonials = []
+
+chats = []
+
+videoLoop = { url: null }
+
+Każdy moduł ma działać bez bazy danych — kompatybilnie z Render FREE.
+
+👉 6) DODAJ DEEP-LINK PUSH LOGIKĘ
+
+W /routes/ads.js, /routes/push.js, oraz index.js zapewnij:
+
+generowanie adId
+
+endpoint /api/ads/:id
+
+push z link: "/ad/" + id
+
+👉 7) UTWÓRZ WERSJE PRODUKCYJNE
+
+Backend ma być gotowy do deploy na Render:
+
+ustaw PORT = process.env.PORT || 5000
+
+popraw start script w package.json
+
+dodaj type: "module"
+
+upewnij się, że ścieżki są względne i zgodne z ESM
+
+👉 8) FINALNA INSTRUKCJA OUTPUT
+
+Po wygenerowaniu kodu:
+
+pokaż listę wszystkich zmodyfikowanych plików
+
+pokaż nowe pliki w /routes
+
+pokaż finalną wersję index.js
+
+upewnij się, że repozytorium jest gotowe do wysyłki na GitHub → Render
