@@ -65,7 +65,12 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `JWT_SECRET` - Secret for JWT token signing
 - `PORT` - Server port (default: 5000)
 
+## Dokumentacja
+- `docs/ADMIN_DOKUMENTACJA.md` - Pelna dokumentacja dla Administratora (PL)
+- `docs/API_REFERENCE.md` - Szybka referencja API (PL)
+
 ## Recent Changes
+- **2024-12**: Dodano pelna dokumentacje dla Admina
 - **2024**: Added new route modules (ads, coupons, testimonials, sms, chat, video, admin)
 - **2024**: Implemented in-memory data storage for Render FREE tier compatibility
 - **2024**: Added deep-link push notification support for ads
