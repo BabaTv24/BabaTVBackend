@@ -76,10 +76,12 @@ app.notFound((c) => {
   }, 404)
 })
 
-const port = process.env.PORT || 5000
-console.log(`BabaTV24 Backend running on port ${port}`)
+const port = Number(process.env.PORT) || 5000;
+
+console.log(`BabaTV24 Backend running on port ${port}`);
 
 serve({
   fetch: app.fetch,
-  port
-})
+  port: port
+});
+
