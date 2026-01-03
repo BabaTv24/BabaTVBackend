@@ -9,7 +9,12 @@
     "dev": "node --watch index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["babatv", "api", "backend", "hono"],
+  "keywords": [
+    "babatv",
+    "api",
+    "backend",
+    "hono"
+  ],
   "author": "",
   "license": "ISC",
   "engines": {
@@ -19,9 +24,14 @@
     "@hono/node-server": "^1.19.6",
     "@supabase/supabase-js": "^2.81.1",
     "@types/node": "^22.13.11",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
     "dotenv": "^17.2.3",
     "hono": "^4.10.6",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "rate-limiter-flexible": "^9.0.1",
+    "speakeasy": "^2.0.0",
+    "uuid": "^13.0.0"
   }
 }

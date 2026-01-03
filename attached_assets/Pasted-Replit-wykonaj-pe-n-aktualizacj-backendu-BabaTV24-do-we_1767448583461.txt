@@ -1,0 +1,214 @@
+Replit — wykonaj pełną aktualizację backendu BabaTV24 do wersji ULTRA-PRO SECURITY.
+
+Zrób wszystko automatycznie:
+
+🔧 1. ZAINSTALUJ WYMAGANE PAKIETY
+
+Uruchom:
+
+npm install speakeasy bcryptjs jsonwebtoken uuid rate-limiter-flexible
+npm install crypto-js
+
+🛡️ 2. UTWÓRZ NOWY PLIK middleware/security.js Z TĄ TREŚCIĄ:
+import { RateLimiterMemory } from "rate-limiter-flexible";
+import crypto from "crypto";
+
+// Global rate limiter
+export const rateLimiter = new RateLimiterMemory({
+  points: 20,
+  duration: 60,
+});
+
+// Bruteforce limiter for admin login
+export const bruteForceLimiter = new RateLimiterMemory({
+  points: 5,
+  duration: 600, // 10 min block
+});
+
+// Replay attack protection
+const usedTokens = new Set();
+export function protectReplay(token) {
+  if (usedTokens.has(token)) return false;
+  usedTokens.add(token);
+  setTimeout(() => usedTokens.delete(token), 30000);
+  return true;
+}
+
+// Security headers middleware
+export function securityHeaders(c, next) {
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("X-Content-Type-Options", "nosniff");
+  c.res.headers.set("Referrer-Policy", "strict-origin");
+  c.res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  return next();
+}
+
+// Digital signature for logs
+export function secureLog(message) {
+  const secret = process.env.LOG_SECRET || "LOGKEY123";
+  const signature = crypto.createHmac("sha256", secret).update(message).digest("hex");
+  console.log(`[SECURE LOG] ${message} | sig=${signature}`);
+}
+
+🔥 3. NADPISZ CAŁY PLIK routes/admin.js TYM KODEM:
+import { Hono } from "hono";
+import bcrypt from "bcryptjs";
+import speakeasy from "speakeasy";
+import { signToken } from "../utils/jwt.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+import { rateLimiter, bruteForceLimiter, protectReplay, secureLog } from "../middleware/security.js";
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const ADMIN_2FA_SECRET = process.env.ADMIN_2FA_SECRET;
+
+const admin = new Hono();
+
+/* ========================
+   STEP 1: PASSWORD LOGIN
+   ======================== */
+admin.post("/login", async (c) => {
+  const ip = c.req.header("x-forwarded-for") || "unknown";
+
+  try {
+    await rateLimiter.consume(ip).catch(() => {
+      return c.json({ success: false, error: "Too many requests" }, 429);
+    });
+
+    const { email, password } = await c.req.json();
+
+    if (email !== ADMIN_EMAIL) {
+      await bruteForceLimiter.consume(ip).catch(() => {});
+      secureLog(`FAILED ADMIN LOGIN (email mismatch) from IP=${ip}`);
+      return c.json({ success: false, error: "Invalid credentials" }, 401);
+    }
+
+    const valid = await bcrypt.compare(password, ADMIN_PASSWORD);
+    if (!valid) {
+      await bruteForceLimiter.consume(ip).catch(() => {});
+      secureLog(`FAILED ADMIN LOGIN (wrong password) from IP=${ip}`);
+      return c.json({ success: false, error: "Invalid credentials" }, 401);
+    }
+
+    secureLog(`ADMIN PASSWORD VERIFIED from IP=${ip}`);
+
+    return c.json({
+      success: true,
+      requires2FA: true,
+      message: "Enter Google Authenticator code."
+    });
+
+  } catch (err) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+/* ========================
+   STEP 2: 2FA LOGIN
+   ======================== */
+admin.post("/verify-2fa", async (c) => {
+  const ip = c.req.header("x-forwarded-for") || "unknown";
+
+  try {
+    const { code } = await c.req.json();
+
+    const verified = speakeasy.totp.verify({
+      secret: ADMIN_2FA_SECRET,
+      encoding: "base32",
+      token: code,
+      window: 1,
+    });
+
+    if (!verified) {
+      secureLog(`FAILED 2FA from IP=${ip}`);
+      return c.json({ success: false, error: "Invalid 2FA code" }, 401);
+    }
+
+    if (!protectReplay(code)) {
+      return c.json({ success: false, error: "Replay attack detected" }, 400);
+    }
+
+    const token = signToken({ role: "admin", email: ADMIN_EMAIL });
+
+    secureLog(`ADMIN SUCCESSFUL LOGIN from IP=${ip}`);
+
+    return c.json({
+      success: true,
+      token,
+      message: "Admin authenticated."
+    });
+
+  } catch (err) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+/* ========================
+   PROTECTED ROUTES
+   ======================== */
+admin.use("/*", authMiddleware);
+
+admin.get("/dashboard", (c) => {
+  return c.json({
+    success: true,
+    system: "BabaTV24 ADMIN PANEL — ULTRA-PRO SECURITY",
+    status: "OK"
+  });
+});
+
+export default admin;
+
+🔥 4. NADPISZ index.js I DODAJ SECURITY HEADERS:
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { serve } from "@hono/node-server";
+import dotenv from "dotenv";
+import { securityHeaders } from "./middleware/security.js";
+
+dotenv.config();
+
+const app = new Hono();
+
+app.use("*", securityHeaders);
+
+app.use(
+  "/*",
+  cors({
+    origin: ["https://babatv24.com", "https://www.babatv24.com"],
+    credentials: true,
+    allowMethods: ["GET", "POST", "PUT", "DELETE"],
+  })
+);
+
+// tutaj importy routes…
+
+🔥 5. RESTART APLIKACJI I PRZEPROWADŹ TEST ENDPOINTÓW
+
+W Replit wywołaj:
+
+npm run dev
+
+
+lub kliknij Run.
+
+🧪 TEST LOGIN FLOW
+1️⃣ E-MAIL + HASŁO
+
+POST /api/admin/login
+→ powinno zwrócić:
+
+{ "success": true, "requires2FA": true }
+
+2️⃣ KOD GOOGLE AUTH
+
+POST /api/admin/verify-2fa
+→ dostaniesz:
+
+{ "success": true, "token": "JWT..." }
+
+3️⃣ WEJŚCIE DO DASHBOARD
+
+GET /api/admin/dashboard
+z headerem:
+
+Authorization: Bearer JWT
