@@ -70,6 +70,7 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01**: ULTRA-PRO SECURITY - rate limiting, brute force protection, 2FA, security headers
 - **2024-12**: Dodano pelna dokumentacje dla Admina
 - **2024**: Added new route modules (ads, coupons, testimonials, sms, chat, video, admin)
 - **2024**: Implemented in-memory data storage for Render FREE tier compatibility
