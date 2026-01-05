@@ -32,6 +32,7 @@ app.use(
       "https://babatv24.com",
       "http://localhost:5173",
       "http://localhost:5000",
+      "https://babatvfanpage.replit.dev",
     ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
