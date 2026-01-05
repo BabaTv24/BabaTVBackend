@@ -25,20 +25,21 @@ const app = new Hono();
 app.use("*", securityHeaders);
 
 app.use(
-  "/*",
+  "*",
   cors({
     origin: [
       "https://www.babatv24.com",
       "https://babatv24.com",
-      "http://localhost:5000",
       "http://localhost:5173",
+      "http://localhost:5000",
     ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
     maxAge: 86400,
-  }),
+  })
 );
+
 
 app.get("/", (c) => {
   return c.json({
