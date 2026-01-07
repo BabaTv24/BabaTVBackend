@@ -48,9 +48,18 @@ const normalizeAccessStatus = (status) => {
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
+const TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+const generateTempPassword = (length = 14) => {
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    password += TEMP_PASSWORD_CHARS.charAt(Math.floor(Math.random() * TEMP_PASSWORD_CHARS.length));
+  }
+  return password;
+};
+
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
-  return {
+  const payload = {
     email: (data.email || "").toLowerCase().trim(),
     firstName: data.firstName || "",
     lastName: data.lastName || "",
@@ -75,6 +84,10 @@ const createSupabasePayload = (data) => {
     createdAt: data.createdAt || now,
     updatedAt: now
   };
+  if (data.password_hash) {
+    payload.password_hash = data.password_hash;
+  }
+  return payload;
 };
 
 const createUserObjectForMemory = (data) => {
@@ -342,7 +355,7 @@ admin.post("/users", async (c) => {
     const body = await c.req.json();
     
     if (IS_DEV) {
-      console.log("[DEV] POST /api/admin/users - received body:", JSON.stringify(body, null, 2));
+      console.log("[DEV] POST /api/admin/users - received body (bez password):", JSON.stringify({ ...body, password: body.password ? "[HIDDEN]" : undefined }, null, 2));
     }
     
     if (!body.email || !body.firstName || !body.lastName) {
@@ -368,23 +381,39 @@ admin.post("/users", async (c) => {
       return c.json({ success: false, error: "expiresAt must be a valid ISO date" }, 400);
     }
 
+    let tempPassword = null;
+    let plainPassword = body.password;
+    
+    if (!plainPassword || typeof plainPassword !== "string" || plainPassword.trim().length < 6) {
+      tempPassword = generateTempPassword(14);
+      plainPassword = tempPassword;
+    }
+    
+    const password_hash = await bcrypt.hash(plainPassword, 10);
+
     const supabase = getSupabaseClient();
 
     if (!supabase) {
       const newUser = createUserObjectForMemory({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
+      newUser.password_hash = password_hash;
       for (const [, u] of usersInMemory) {
         if (u.email === email) {
           return c.json({ success: false, error: "User with this email already exists" }, 409);
         }
       }
       usersInMemory.set(newUser.id, newUser);
-      return c.json({ success: true, user: newUser, source: "memory" }, 201);
+      const { password_hash: _, ...userWithoutHash } = newUser;
+      const response = { success: true, user: userWithoutHash, source: "memory" };
+      if (tempPassword) response.tempPassword = tempPassword;
+      return c.json(response, 201);
     }
 
-    const supabasePayload = createSupabasePayload({ ...body, email, role: normalizedRole || "user" });
+    const supabasePayload = createSupabasePayload({ ...body, email, role: normalizedRole || "user", password_hash });
     
     if (IS_DEV) {
-      console.log("[DEV] Supabase insert payload (no id):", JSON.stringify(supabasePayload, null, 2));
+      const logPayload = { ...supabasePayload };
+      delete logPayload.password_hash;
+      console.log("[DEV] Supabase insert payload (bez password_hash):", JSON.stringify(logPayload, null, 2));
     }
 
     const { data: existing } = await supabase
@@ -405,29 +434,36 @@ admin.post("/users", async (c) => {
 
     if (error) {
       if (IS_DEV) {
-        console.log("[DEV] Supabase insert error:", error);
+        console.log("[DEV] Supabase insert error:", JSON.stringify({ message: error.message, details: error.details, code: error.code }, null, 2));
       }
       if (error.message.includes("does not exist") || error.code === "42P01") {
         const newUser = createUserObjectForMemory({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
+        newUser.password_hash = password_hash;
         for (const [, u] of usersInMemory) {
           if (u.email === email) {
             return c.json({ success: false, error: "User with this email already exists" }, 409);
           }
         }
         usersInMemory.set(newUser.id, newUser);
-        return c.json({ success: true, user: newUser, source: "memory" }, 201);
+        const { password_hash: _, ...userWithoutHash } = newUser;
+        const response = { success: true, user: userWithoutHash, source: "memory" };
+        if (tempPassword) response.tempPassword = tempPassword;
+        return c.json(response, 201);
       }
       if (error.code === "23505") {
         return c.json({ success: false, error: "User with this email already exists" }, 409);
       }
-      throw error;
+      return c.json({ success: false, error: error.message, details: error.details || null }, 400);
     }
 
     if (IS_DEV) {
-      console.log("[DEV] Supabase insert success, returned:", JSON.stringify(data, null, 2));
+      console.log("[DEV] Supabase insert success, user id:", data.id);
     }
 
-    return c.json({ success: true, user: data, source: "supabase" }, 201);
+    const { password_hash: _, ...userWithoutHash } = data;
+    const response = { success: true, user: userWithoutHash, source: "supabase" };
+    if (tempPassword) response.tempPassword = tempPassword;
+    return c.json(response, 201);
   } catch (error) {
     if (IS_DEV) {
       console.log("[DEV] POST /api/admin/users error:", error.message);
