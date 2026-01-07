@@ -1,0 +1,51 @@
+Jesteś senior backend engineerem. Napraw endpointy admina w Hono + Supabase tak, aby panel admina na https://babatv24.com mógł tworzyć użytkowników bez podawania hasła, a insert nie łamał NOT NULL na `users.password_hash`.
+
+KONTEKST:
+- Frontend wysyła payload w camelCase, np.:
+  {
+    email, firstName, lastName,
+    phone, address, city, country, postalCode,
+    bankAccount, facebookUrl, instagramUrl, linkedinUrl, tiktokUrl, twitterUrl, youtubeUrl,
+    role: "USER" (czasem "user"), accessStatus: "active" itp.
+  }
+- W Supabase tabela `public.users` ma kolumnę `password_hash` NOT NULL.
+- W tabeli występują też kolumny snake_case typu `first_name`, `last_name`, `postal_code`, `bank_account`, `facebook_url` itd.
+- Aktualnie API zwraca 400/404 i/lub błędy o brakujących kolumnach oraz NOT NULL na password_hash.
+
+ZADANIE:
+1) W routes admina (adminRoutes) popraw:
+   - POST /api/admin/users  (create user)
+   - GET  /api/admin/users  (list users) – jeśli istnieje, dopasuj odpowiedź do camelCase
+   - (opcjonalnie) PUT /api/admin/users/:id (update user) – jeśli istnieje, dopasuj mapowanie
+2) Zaimplementuj normalizację payloadu:
+   - Akceptuj camelCase OR snake_case w request body
+   - Mapuj na JEDEN spójny zapis do DB: użyj snake_case kolumn:
+     first_name, last_name, phone, address, city, country, postal_code,
+     bank_account, facebook_url, instagram_url, linkedin_url, tiktok_url, twitter_url, youtube_url,
+     role, access_status
+   - `role` normalizuj do: "user" | "moderator" | "admin" (zamień "USER" -> "user" itd.)
+   - `access_status` domyślnie "active" jeśli brak.
+3) Najważniejsze: zawsze ustaw `password_hash`:
+   - Jeśli request ma `password` -> zahashuj bcryptjs (10 salt rounds) i zapisz w `password_hash`
+   - Jeśli NIE ma `password` -> wygeneruj losowe hasło (np. 16-24 znaki), zahashuj i zapisz w `password_hash`
+   - Zwróć w response success + user id, ale NIE zwracaj hasła jawnie.
+   - Dodatkowo możesz zwrócić `tempPasswordGenerated: true/false` (bez samego hasła) żebyśmy wiedzieli co się stało.
+4) Zadbaj o stabilne odpowiedzi JSON:
+   - Sukces: { success: true, user: { ...camelCaseFields... } }
+   - Błąd:   { success: false, error: "...", details?: any }
+5) Dodaj logi serwerowe (bez danych wrażliwych):
+   - loguj email + role + czy wygenerowano hasło, ale nie loguj password ani password_hash.
+6) Upewnij się, że endpointy admina są chronione authMiddleware (JWT admin) jeśli tak ma być.
+   - Jeśli panel nie wysyła tokena jeszcze, zostaw create/list jako wymagające tokena, ale zwracaj czytelne 401.
+7) Dodaj szybki test manualny w komentarzu (curl) do endpointu create:
+   curl -X POST https://babatvbackend.onrender.com/api/admin/users \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <ADMIN_TOKEN>" \
+     -d '{"email":"test@example.com","firstName":"Test","lastName":"User","role":"USER"}'
+
+KRYTERIA AKCEPTACJI:
+- POST /api/admin/users działa z payloadem z panelu admina bez hasła (backend sam generuje hash)
+- Nie ma błędu NOT NULL na password_hash
+- Nie ma błędów o brakujących kolumnach typu first_name/updated_at/bankAccount
+- Odpowiedź jest spójna i panel przestaje wywalać czerwone 400
+Wykonaj zmiany w kodzie i wskaż dokładnie które pliki edytowałeś.

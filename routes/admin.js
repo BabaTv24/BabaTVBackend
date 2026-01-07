@@ -49,12 +49,24 @@ const normalizeAccessStatus = (status) => {
 const IS_DEV = process.env.NODE_ENV !== "production";
 
 const TEMP_PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-const generateTempPassword = (length = 14) => {
+const generateTempPassword = (length = 16) => {
   let password = "";
   for (let i = 0; i < length; i++) {
     password += TEMP_PASSWORD_CHARS.charAt(Math.floor(Math.random() * TEMP_PASSWORD_CHARS.length));
   }
   return password;
+};
+
+const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+
+const convertUserToCamelCase = (user) => {
+  if (!user) return user;
+  const result = {};
+  for (const [key, value] of Object.entries(user)) {
+    if (key === "password_hash") continue;
+    result[snakeToCamel(key)] = value;
+  }
+  return result;
 };
 
 const createSupabasePayload = (data) => {
@@ -341,11 +353,12 @@ admin.get("/users", async (c) => {
     const total = filteredUsers.length;
 
     const enrichedUsers = paginatedUsers.map(user => ({
-      ...user,
+      ...convertUserToCamelCase(user),
       meta: userMeta.get(user.id) || { tags: [], isPremium: false }
     }));
 
     return c.json({ 
+      success: true,
       users: enrichedUsers,
       total,
       page,
@@ -411,8 +424,13 @@ admin.post("/users", async (c) => {
       }
       usersInMemory.set(newUser.id, newUser);
       const { password_hash: _, ...userWithoutHash } = newUser;
-      const response = { success: true, user: userWithoutHash, source: "memory" };
-      if (tempPassword) response.tempPassword = tempPassword;
+      const response = { 
+        success: true, 
+        user: convertUserToCamelCase(userWithoutHash), 
+        tempPasswordGenerated: !!tempPassword,
+        source: "memory" 
+      };
+      console.log(`[ADMIN] User created: ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
       return c.json(response, 201);
     }
 
@@ -454,8 +472,13 @@ admin.post("/users", async (c) => {
         }
         usersInMemory.set(newUser.id, newUser);
         const { password_hash: _, ...userWithoutHash } = newUser;
-        const response = { success: true, user: userWithoutHash, source: "memory" };
-        if (tempPassword) response.tempPassword = tempPassword;
+        const response = { 
+          success: true, 
+          user: convertUserToCamelCase(userWithoutHash), 
+          tempPasswordGenerated: !!tempPassword,
+          source: "memory" 
+        };
+        console.log(`[ADMIN] User created (fallback): ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
         return c.json(response, 201);
       }
       if (error.code === "23505") {
@@ -469,13 +492,16 @@ admin.post("/users", async (c) => {
     }
 
     const { password_hash: _, ...userWithoutHash } = data;
-    const response = { success: true, user: userWithoutHash, source: "supabase" };
-    if (tempPassword) response.tempPassword = tempPassword;
+    const response = { 
+      success: true, 
+      user: convertUserToCamelCase(userWithoutHash), 
+      tempPasswordGenerated: !!tempPassword,
+      source: "supabase" 
+    };
+    console.log(`[ADMIN] User created in Supabase: ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
     return c.json(response, 201);
   } catch (error) {
-    if (IS_DEV) {
-      console.log("[DEV] POST /api/admin/users error:", error.message);
-    }
+    console.error("[ADMIN] POST /api/admin/users error:", error.message);
     return c.json({ success: false, error: error.message }, 400);
   }
 });
@@ -620,7 +646,7 @@ admin.put("/users/:id", async (c) => {
       return c.json({ success: false, error: error.message, details: error.details }, 400);
     }
 
-    return c.json({ success: true, user: data, source: "supabase" });
+    return c.json({ success: true, user: convertUserToCamelCase(data), source: "supabase" });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 400);
   }
