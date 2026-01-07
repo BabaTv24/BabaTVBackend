@@ -61,32 +61,18 @@ const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
   const payload = {
     email: (data.email || "").toLowerCase().trim(),
-    firstName: data.firstName || "",
-    lastName: data.lastName || "",
-    phone: data.phone || null,
-    city: data.city || null,
-    country: data.country || null,
-    addressLine1: data.addressLine1 || null,
-    addressLine2: data.addressLine2 || null,
-    postalCode: data.postalCode || null,
-    iban: data.iban || null,
-    bic: data.bic || null,
-    bankName: data.bankName || null,
-    accountHolder: data.accountHolder || null,
-    telegram: data.telegram || null,
-    instagram: data.instagram || null,
-    youtube: data.youtube || null,
-    facebook: data.facebook || null,
-    website: data.website || null,
+    first_name: data.firstName || data.first_name || "",
+    last_name: data.lastName || data.last_name || "",
     role: normalizeRole(data.role) || "user",
-    expiresAt: data.expiresAt || null,
-    notes: data.notes || null,
-    createdAt: data.createdAt || now,
-    updatedAt: now
+    password_hash: data.password_hash,
+    created_at: data.createdAt || data.created_at || now,
+    updated_at: now
   };
-  if (data.password_hash) {
-    payload.password_hash = data.password_hash;
+  
+  if (IS_DEV) {
+    console.log("[DEV] createSupabasePayload - klucze:", Object.keys(payload).join(", "));
   }
+  
   return payload;
 };
 
