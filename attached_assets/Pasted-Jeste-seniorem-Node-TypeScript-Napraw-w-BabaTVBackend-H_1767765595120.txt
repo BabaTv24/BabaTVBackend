@@ -1,0 +1,45 @@
+Jesteś seniorem Node/TypeScript. Napraw w BabaTVBackend (Hono + Supabase) endpointy admina do users tak, aby działały z aktualną tabelą public.users w Supabase i panelem admina na babatv24.com.
+
+Cel: POST /api/admin/users ma tworzyć użytkownika bez błędu 400. Obecnie Supabase zwraca m.in. “null value in column password_hash violates not-null constraint” oraz wcześniej były błędy “Could not find column … in schema cache” wynikające z mieszania camelCase/snake_case.
+
+Wymagania implementacji:
+
+Zrób warstwę mapowania wejścia (camelCase z frontendu) → (snake_case do DB).
+
+Oczekiwany payload z frontu:
+{ email, firstName, lastName, phone, address, addressLine1, addressLine2, city, country, postalCode, bankAccount, facebookUrl, instagramUrl, linkedinUrl, tiktokUrl, twitterUrl, youtubeUrl, role }
+
+Do DB zapisuj głównie snake_case: email, first_name, last_name, phone, address, city, country, postal_code, bank_account, facebook_url, instagram_url, linkedin_url, tiktok_url, twitter_url, youtube_url, role, access_status
+
+Jeśli w tabeli są też duble camelCase (firstName, postalCode itp.), NIE polegaj na nich — zapisuj snake_case, a na wyjściu możesz zwracać camelCase dla frontu.
+
+Filtruj payload: wysyłaj do Supabase tylko kolumny, które istnieją (żeby nie było “Could not find column …”).
+
+password_hash jest NOT NULL → przy tworzeniu usera z admina:
+
+jeśli frontend nie podaje hasła, wygeneruj tempPassword (losowe 12–16 znaków), zahashuj bcryptem i zapisz w password_hash.
+
+w odpowiedzi zwróć tempPassword tylko w trybie development albo tylko jeśli process.env.RETURN_TEMP_PASSWORD === "true" (domyślnie false), ale logika ma działać.
+
+Znormalizuj role:
+
+frontend czasem wysyła role: "USER" → zamień na "user".
+
+Akceptuj tylko: user | moderator | admin, inaczej 400 z czytelnym komunikatem.
+
+Ujednolić błędy: zawsze JSON { success:false, error:"...", details?:... }.
+
+Dodaj/napraw endpointy:
+
+GET /api/admin/users (lista)
+
+POST /api/admin/users (create)
+
+PUT /api/admin/users/:id (update)
+
+DELETE /api/admin/users/:id (delete)
+Upewnij się, że router jest podpięty pod app.route("/api/admin", adminRoutes); i ścieżki są poprawne.
+
+Po zmianach dodaj krótkie instrukcje testu (curl) dla: create user, list users.
+
+Zaimplementuj to w istniejących plikach admin routes (np. routes/admin.js/ts) oraz ewentualnie dodaj helper mapUserPayload() + normalizeRole() + generateTempPassword().

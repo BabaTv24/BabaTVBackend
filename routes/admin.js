@@ -573,10 +573,34 @@ admin.put("/users/:id", async (c) => {
       }
     }
 
-    delete body.id;
-    delete body.accessStatus;
-    delete body.externalId;
-    const updatePayload = { ...body, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const rawUpdate = {
+      email: body.email || undefined,
+      first_name: body.firstName || body.first_name || undefined,
+      last_name: body.lastName || body.last_name || undefined,
+      phone: body.phone || undefined,
+      address: body.address || body.addressLine1 || undefined,
+      city: body.city || undefined,
+      country: body.country || undefined,
+      postal_code: body.postalCode || body.postal_code || undefined,
+      bank_account: body.bankAccount || body.bank_account || undefined,
+      facebook_url: body.facebookUrl || body.facebook_url || undefined,
+      instagram_url: body.instagramUrl || body.instagram_url || undefined,
+      linkedin_url: body.linkedinUrl || body.linkedin_url || undefined,
+      tiktok_url: body.tiktokUrl || body.tiktok_url || undefined,
+      twitter_url: body.twitterUrl || body.twitter_url || undefined,
+      youtube_url: body.youtubeUrl || body.youtube_url || undefined,
+      role: body.role || undefined,
+      access_status: body.accessStatus || body.access_status || undefined,
+      updated_at: now
+    };
+    
+    const updatePayload = {};
+    for (const [key, value] of Object.entries(rawUpdate)) {
+      if (value !== undefined) {
+        updatePayload[key] = value;
+      }
+    }
 
     if (IS_DEV) {
       console.log("[DEV] PUT /api/admin/users/:id - update payload:", JSON.stringify(updatePayload, null, 2));
