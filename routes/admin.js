@@ -46,10 +46,11 @@ const normalizeAccessStatus = (status) => {
   return null;
 };
 
-const createUserObject = (data) => {
+const IS_DEV = process.env.NODE_ENV !== "production";
+
+const createUserPayload = (data, options = {}) => {
   const now = new Date().toISOString();
-  return {
-    id: data.id || generateId(),
+  const payload = {
     email: (data.email || "").toLowerCase().trim(),
     firstName: data.firstName || "",
     lastName: data.lastName || "",
@@ -72,9 +73,22 @@ const createUserObject = (data) => {
     accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
     expiresAt: data.expiresAt || null,
     notes: data.notes || null,
+    externalId: data.externalId || generateId(),
     createdAt: data.createdAt || now,
     updatedAt: now
   };
+  
+  if (options.includeId && data.id) {
+    payload.id = data.id;
+  }
+  
+  return payload;
+};
+
+const createUserObjectForMemory = (data) => {
+  const payload = createUserPayload(data);
+  payload.id = generateId();
+  return payload;
 };
 
 const usersInMemory = new Map();
@@ -309,6 +323,10 @@ admin.post("/users", async (c) => {
   try {
     const body = await c.req.json();
     
+    if (IS_DEV) {
+      console.log("[DEV] POST /api/admin/users - received body:", JSON.stringify(body, null, 2));
+    }
+    
     if (!body.email || !body.firstName || !body.lastName) {
       return c.json({ success: false, error: "email, firstName, lastName are required" }, 400);
     }
@@ -332,10 +350,10 @@ admin.post("/users", async (c) => {
       return c.json({ success: false, error: "expiresAt must be a valid ISO date" }, 400);
     }
 
-    const newUser = createUserObject({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
     const supabase = getSupabaseClient();
 
     if (!supabase) {
+      const newUser = createUserObjectForMemory({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
       for (const [, u] of usersInMemory) {
         if (u.email === email) {
           return c.json({ success: false, error: "User with this email already exists" }, 409);
@@ -343,6 +361,12 @@ admin.post("/users", async (c) => {
       }
       usersInMemory.set(newUser.id, newUser);
       return c.json({ success: true, user: newUser, source: "memory" }, 201);
+    }
+
+    const supabasePayload = createUserPayload({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
+    
+    if (IS_DEV) {
+      console.log("[DEV] Supabase insert payload (no id):", JSON.stringify(supabasePayload, null, 2));
     }
 
     const { data: existing } = await supabase
@@ -357,12 +381,16 @@ admin.post("/users", async (c) => {
 
     const { data, error } = await supabase
       .from(USERS_TABLE)
-      .insert(newUser)
+      .insert(supabasePayload)
       .select()
       .single();
 
     if (error) {
+      if (IS_DEV) {
+        console.log("[DEV] Supabase insert error:", error);
+      }
       if (error.message.includes("does not exist") || error.code === "42P01") {
+        const newUser = createUserObjectForMemory({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
         for (const [, u] of usersInMemory) {
           if (u.email === email) {
             return c.json({ success: false, error: "User with this email already exists" }, 409);
@@ -377,8 +405,15 @@ admin.post("/users", async (c) => {
       throw error;
     }
 
+    if (IS_DEV) {
+      console.log("[DEV] Supabase insert success, returned:", JSON.stringify(data, null, 2));
+    }
+
     return c.json({ success: true, user: data, source: "supabase" }, 201);
   } catch (error) {
+    if (IS_DEV) {
+      console.log("[DEV] POST /api/admin/users error:", error.message);
+    }
     return c.json({ success: false, error: error.message }, 400);
   }
 });
@@ -429,7 +464,7 @@ admin.put("/users/:id", async (c) => {
           }
         }
       }
-      const updated = createUserObject({ ...memUser, ...body, id, createdAt: memUser.createdAt });
+      const updated = { ...memUser, ...body, id, createdAt: memUser.createdAt, updatedAt: new Date().toISOString() };
       usersInMemory.set(id, updated);
       return c.json({ success: true, user: updated, source: "memory" });
     }
@@ -453,7 +488,7 @@ admin.put("/users/:id", async (c) => {
             }
           }
         }
-        const updated = createUserObject({ ...memUser, ...body, id, createdAt: memUser.createdAt });
+        const updated = { ...memUser, ...body, id, createdAt: memUser.createdAt, updatedAt: new Date().toISOString() };
         usersInMemory.set(id, updated);
         return c.json({ success: true, user: updated, source: "memory" });
       }
@@ -476,11 +511,12 @@ admin.put("/users/:id", async (c) => {
       }
     }
 
-    const updatedUser = createUserObject({ ...existingUser, ...body, id, createdAt: existingUser.createdAt });
+    delete body.id;
+    const updatePayload = { ...body, updatedAt: new Date().toISOString() };
 
     const { data, error } = await supabase
       .from(USERS_TABLE)
-      .update(updatedUser)
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
