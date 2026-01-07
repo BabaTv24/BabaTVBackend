@@ -48,9 +48,39 @@ const normalizeAccessStatus = (status) => {
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
-const createUserPayload = (data, options = {}) => {
+const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
-  const payload = {
+  return {
+    email: (data.email || "").toLowerCase().trim(),
+    firstName: data.firstName || "",
+    lastName: data.lastName || "",
+    phone: data.phone || null,
+    city: data.city || null,
+    country: data.country || null,
+    addressLine1: data.addressLine1 || null,
+    addressLine2: data.addressLine2 || null,
+    postalCode: data.postalCode || null,
+    iban: data.iban || null,
+    bic: data.bic || null,
+    bankName: data.bankName || null,
+    accountHolder: data.accountHolder || null,
+    telegram: data.telegram || null,
+    instagram: data.instagram || null,
+    youtube: data.youtube || null,
+    facebook: data.facebook || null,
+    website: data.website || null,
+    role: normalizeRole(data.role) || "user",
+    expiresAt: data.expiresAt || null,
+    notes: data.notes || null,
+    createdAt: data.createdAt || now,
+    updatedAt: now
+  };
+};
+
+const createUserObjectForMemory = (data) => {
+  const now = new Date().toISOString();
+  return {
+    id: generateId(),
     email: (data.email || "").toLowerCase().trim(),
     firstName: data.firstName || "",
     lastName: data.lastName || "",
@@ -71,24 +101,12 @@ const createUserPayload = (data, options = {}) => {
     website: data.website || null,
     role: normalizeRole(data.role) || "user",
     accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
+    externalId: data.externalId || generateId(),
     expiresAt: data.expiresAt || null,
     notes: data.notes || null,
-    externalId: data.externalId || generateId(),
     createdAt: data.createdAt || now,
     updatedAt: now
   };
-  
-  if (options.includeId && data.id) {
-    payload.id = data.id;
-  }
-  
-  return payload;
-};
-
-const createUserObjectForMemory = (data) => {
-  const payload = createUserPayload(data);
-  payload.id = generateId();
-  return payload;
 };
 
 const usersInMemory = new Map();
@@ -363,7 +381,7 @@ admin.post("/users", async (c) => {
       return c.json({ success: true, user: newUser, source: "memory" }, 201);
     }
 
-    const supabasePayload = createUserPayload({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
+    const supabasePayload = createSupabasePayload({ ...body, email, role: normalizedRole || "user" });
     
     if (IS_DEV) {
       console.log("[DEV] Supabase insert payload (no id):", JSON.stringify(supabasePayload, null, 2));
@@ -512,7 +530,13 @@ admin.put("/users/:id", async (c) => {
     }
 
     delete body.id;
+    delete body.accessStatus;
+    delete body.externalId;
     const updatePayload = { ...body, updatedAt: new Date().toISOString() };
+
+    if (IS_DEV) {
+      console.log("[DEV] PUT /api/admin/users/:id - update payload:", JSON.stringify(updatePayload, null, 2));
+    }
 
     const { data, error } = await supabase
       .from(USERS_TABLE)
@@ -521,7 +545,12 @@ admin.put("/users/:id", async (c) => {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (IS_DEV) {
+        console.log("[DEV] Supabase update error:", JSON.stringify({ message: error.message, details: error.details, code: error.code }, null, 2));
+      }
+      return c.json({ success: false, error: error.message, details: error.details }, 400);
+    }
 
     return c.json({ success: true, user: data, source: "supabase" });
   } catch (error) {
