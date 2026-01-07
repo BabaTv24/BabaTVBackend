@@ -1,0 +1,71 @@
+Jesteś w projekcie BabaTVBackend (Hono/Node). Celem jest naprawić admin endpointy users tak, aby działały z produkcyjnym frontendem oraz tabelą users w Supabase.
+
+KONTEKST:
+- Produkcja backend: Render
+- Frontend: https://www.babatv24.com
+- Admin API: /api/admin/*
+- Auth: JWT w nagłówku Authorization: Bearer <token>
+- Supabase tabela: public.users ma kolumny camelCase (np. firstName, lastName, createdAt, updatedAt, accessStatus, externalId) oraz ma constraint NOT NULL na password_hash.
+- Frontend wysyła payload:
+  { email, firstName, lastName, role, phone, address, city, country, postalCode, bankAccount, facebookUrl, instagramUrl, linkedinUrl, tiktokUrl, twitterUrl, youtubeUrl }
+
+PROBLEMY:
+- Backend zwraca 400/404 w /api/admin/users
+- Były błędy: role must be one of user/moderator/admin
+- Były błędy: null value in column password_hash violates not-null constraint
+- Były błędy “Could not find column … in schema cache” (to Supabase PostgREST, ale backend ma też być odporny na rozjazdy)
+
+ZADANIA (konkretne):
+1) Zlokalizuj plik z trasami admina (np. routes/admin.js lub podobny) i handler dla:
+   - GET /users
+   - POST /users (create)
+   - PUT/PATCH /users/:id (opcjonalnie)
+   Upewnij się, że router jest zamontowany jako app.route("/api/admin", adminRoutes) i w samym routerze ścieżki są np. "/users" (nie "/api/admin/users").
+
+2) WALIDACJA i MAPOWANIE:
+   - W POST /users wymagane: email, firstName, lastName.
+   - role: jeśli przyszło "USER"/"ADMIN" itp. → zmapuj na lowercase:
+     const roleNorm = String(role || "user").toLowerCase();
+     dozwolone: user, moderator, admin; w innym wypadku 400.
+
+3) PASSWORD HASH (krytyczne):
+   - Supabase users.password_hash jest NOT NULL.
+   - Endpoint admin create user ma działać nawet jeśli frontend nie podaje hasła.
+   - Jeśli payload nie zawiera password:
+     - wygeneruj losowe hasło (np. 16-24 znaki)
+     - zahashuj bcrypt (bcryptjs) i zapisz do password_hash
+     - NIE zwracaj hasła w odpowiedzi (opcjonalnie log tylko w dev).
+   - Jeśli payload zawiera password:
+     - zahashuj i zapisz do password_hash.
+   - Zwracaj w odpowiedzi user bez password_hash.
+
+4) DOPASOWANIE DO SCHEMY (camelCase):
+   - Upewnij się, że insert/update używa dokładnie nazw kolumn z tabeli:
+     firstName, lastName, createdAt, updatedAt, accessStatus, externalId, itp.
+   - Jeśli w kodzie są snake_case (first_name, updated_at) → popraw na camelCase.
+
+5) createdAt/updatedAt:
+   - Jeśli tabela ma createdAt/updatedAt:
+     - przy tworzeniu ustaw createdAt = new Date().toISOString(), updatedAt = new Date().toISOString()
+     - przy update ustaw updatedAt.
+   - Jeśli tabela ma już defaulty w DB, możesz ich nie wysyłać — ale nie wysyłaj złych nazw.
+
+6) RESPONSE FORMAT:
+   - Sukces: { success: true, user: {...} }
+   - Błąd walidacji: 400 z { success:false, error:"..." }
+   - Błąd supabase: 400/500 z { success:false, error: supabaseError.message }
+
+7) DEBUG:
+   - Dodaj logowanie w dev: payload po walidacji, rola po normalizacji, czy wygenerowano hasło.
+   - Upewnij się, że błędy nie zwracają HTML (tylko JSON).
+
+8) TESTY SZYBKIE (instrukcja na końcu):
+   - Podaj komendy curl do:
+     - login -> token
+     - create user z tokenem
+     - list users
+
+OUTPUT:
+- Zmień kod.
+- Wypisz dokładnie: jakie pliki zmieniłeś + krótkie streszczenie zmian.
+- Dodaj gotowe komendy curl (z placeholderem TOKEN).

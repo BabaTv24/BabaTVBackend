@@ -61,16 +61,32 @@ const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
   const payload = {
     email: (data.email || "").toLowerCase().trim(),
-    first_name: data.firstName || data.first_name || "",
-    last_name: data.lastName || data.last_name || "",
+    firstName: data.firstName || "",
+    lastName: data.lastName || "",
+    phone: data.phone || null,
+    address: data.address || null,
+    city: data.city || null,
+    country: data.country || null,
+    postalCode: data.postalCode || null,
+    bankAccount: data.bankAccount || null,
+    facebookUrl: data.facebookUrl || null,
+    instagramUrl: data.instagramUrl || null,
+    linkedinUrl: data.linkedinUrl || null,
+    tiktokUrl: data.tiktokUrl || null,
+    twitterUrl: data.twitterUrl || null,
+    youtubeUrl: data.youtubeUrl || null,
     role: normalizeRole(data.role) || "user",
+    accessStatus: data.accessStatus || "active",
+    externalId: data.externalId || generateId(),
     password_hash: data.password_hash,
-    created_at: data.createdAt || data.created_at || now,
-    updated_at: now
+    createdAt: data.createdAt || now,
+    updatedAt: now
   };
   
   if (IS_DEV) {
     console.log("[DEV] createSupabasePayload - klucze:", Object.keys(payload).join(", "));
+    console.log("[DEV] role po normalizacji:", payload.role);
+    console.log("[DEV] password_hash ustawiony:", !!payload.password_hash);
   }
   
   return payload;
@@ -84,25 +100,20 @@ const createUserObjectForMemory = (data) => {
     firstName: data.firstName || "",
     lastName: data.lastName || "",
     phone: data.phone || null,
+    address: data.address || null,
     city: data.city || null,
     country: data.country || null,
-    addressLine1: data.addressLine1 || null,
-    addressLine2: data.addressLine2 || null,
     postalCode: data.postalCode || null,
-    iban: data.iban || null,
-    bic: data.bic || null,
-    bankName: data.bankName || null,
-    accountHolder: data.accountHolder || null,
-    telegram: data.telegram || null,
-    instagram: data.instagram || null,
-    youtube: data.youtube || null,
-    facebook: data.facebook || null,
-    website: data.website || null,
+    bankAccount: data.bankAccount || null,
+    facebookUrl: data.facebookUrl || null,
+    instagramUrl: data.instagramUrl || null,
+    linkedinUrl: data.linkedinUrl || null,
+    tiktokUrl: data.tiktokUrl || null,
+    twitterUrl: data.twitterUrl || null,
+    youtubeUrl: data.youtubeUrl || null,
     role: normalizeRole(data.role) || "user",
     accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
     externalId: data.externalId || generateId(),
-    expiresAt: data.expiresAt || null,
-    notes: data.notes || null,
     createdAt: data.createdAt || now,
     updatedAt: now
   };
