@@ -16,6 +16,36 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_ROLES = ["user", "moderator", "admin"];
 const ALLOWED_ACCESS_STATUS = ["active", "suspended", "expired"];
 
+const ROLE_ALIASES = {
+  "administrator": "admin",
+  "mod": "moderator",
+  "member": "user",
+  "normal": "user"
+};
+
+const STATUS_ALIASES = {
+  "enabled": "active",
+  "disabled": "suspended",
+  "banned": "suspended",
+  "inactive": "expired"
+};
+
+const normalizeRole = (role) => {
+  if (!role || typeof role !== "string") return "user";
+  const normalized = role.trim().toLowerCase();
+  if (ROLE_ALIASES[normalized]) return ROLE_ALIASES[normalized];
+  if (ALLOWED_ROLES.includes(normalized)) return normalized;
+  return null;
+};
+
+const normalizeAccessStatus = (status) => {
+  if (!status || typeof status !== "string") return "active";
+  const normalized = status.trim().toLowerCase();
+  if (STATUS_ALIASES[normalized]) return STATUS_ALIASES[normalized];
+  if (ALLOWED_ACCESS_STATUS.includes(normalized)) return normalized;
+  return null;
+};
+
 const createUserObject = (data) => {
   const now = new Date().toISOString();
   return {
@@ -38,8 +68,8 @@ const createUserObject = (data) => {
     youtube: data.youtube || null,
     facebook: data.facebook || null,
     website: data.website || null,
-    role: ALLOWED_ROLES.includes(data.role) ? data.role : "user",
-    accessStatus: ALLOWED_ACCESS_STATUS.includes(data.accessStatus) ? data.accessStatus : "active",
+    role: normalizeRole(data.role) || "user",
+    accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
     expiresAt: data.expiresAt || null,
     notes: data.notes || null,
     createdAt: data.createdAt || now,
@@ -197,16 +227,35 @@ admin.get("/users", async (c) => {
     const page = parseInt(c.req.query("page") || "1");
     const limit = parseInt(c.req.query("limit") || "50");
     const offset = (page - 1) * limit;
+    const q = (c.req.query("q") || "").toLowerCase().trim();
+    const statusFilter = c.req.query("status") || "";
+    const roleFilter = c.req.query("role") || "";
+
+    const filterUsers = (usersList) => {
+      return usersList.filter(user => {
+        const matchesSearch = !q || 
+          (user.email || "").toLowerCase().includes(q) ||
+          (user.firstName || "").toLowerCase().includes(q) ||
+          (user.lastName || "").toLowerCase().includes(q);
+        const matchesStatus = !statusFilter || user.accessStatus === statusFilter;
+        const matchesRole = !roleFilter || user.role === roleFilter;
+        return matchesSearch && matchesStatus && matchesRole;
+      });
+    };
 
     const supabase = getSupabaseClient();
     
     if (!supabase) {
-      const inMemoryUsers = Array.from(usersInMemory.values());
-      const paginatedUsers = inMemoryUsers.slice(offset, offset + limit);
+      const allUsers = Array.from(usersInMemory.values());
+      const filteredUsers = filterUsers(allUsers);
+      const paginatedUsers = filteredUsers.slice(offset, offset + limit);
+      const total = filteredUsers.length;
       return c.json({ 
-        success: true, 
         users: paginatedUsers.map(u => ({ ...u, meta: userMeta.get(u.id) || { tags: [], isPremium: false } })),
-        pagination: { page, limit, total: inMemoryUsers.length, pages: Math.ceil(inMemoryUsers.length / limit) },
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
         source: "memory"
       });
     }
@@ -214,32 +263,41 @@ admin.get("/users", async (c) => {
     const { data: users, error, count } = await supabase
       .from(USERS_TABLE)
       .select("*", { count: "exact" })
-      .range(offset, offset + limit - 1)
       .order("createdAt", { ascending: false });
 
     if (error) {
       if (error.message.includes("does not exist") || error.code === "42P01") {
-        const inMemoryUsers = Array.from(usersInMemory.values());
-        const paginatedUsers = inMemoryUsers.slice(offset, offset + limit);
+        const allUsers = Array.from(usersInMemory.values());
+        const filteredUsers = filterUsers(allUsers);
+        const paginatedUsers = filteredUsers.slice(offset, offset + limit);
+        const total = filteredUsers.length;
         return c.json({ 
-          success: true, 
           users: paginatedUsers.map(u => ({ ...u, meta: userMeta.get(u.id) || { tags: [], isPremium: false } })),
-          pagination: { page, limit, total: inMemoryUsers.length, pages: Math.ceil(inMemoryUsers.length / limit) },
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit),
           source: "memory"
         });
       }
       throw error;
     }
 
-    const enrichedUsers = (users || []).map(user => ({
+    const filteredUsers = filterUsers(users || []);
+    const paginatedUsers = filteredUsers.slice(offset, offset + limit);
+    const total = filteredUsers.length;
+
+    const enrichedUsers = paginatedUsers.map(user => ({
       ...user,
       meta: userMeta.get(user.id) || { tags: [], isPremium: false }
     }));
 
     return c.json({ 
-      success: true, 
       users: enrichedUsers,
-      pagination: { page, limit, total: count || 0, pages: Math.ceil((count || 0) / limit) },
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
       source: "supabase"
     });
   } catch (error) {
@@ -260,11 +318,13 @@ admin.post("/users", async (c) => {
       return c.json({ success: false, error: "Invalid email format" }, 400);
     }
     
-    if (body.role && !ALLOWED_ROLES.includes(body.role)) {
-      return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")}` }, 400);
+    const normalizedRole = normalizeRole(body.role);
+    if (body.role && normalizedRole === null) {
+      return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")} (or aliases: administrator, mod)` }, 400);
     }
     
-    if (body.accessStatus && !ALLOWED_ACCESS_STATUS.includes(body.accessStatus)) {
+    const normalizedStatus = normalizeAccessStatus(body.accessStatus);
+    if (body.accessStatus && normalizedStatus === null) {
       return c.json({ success: false, error: `accessStatus must be one of: ${ALLOWED_ACCESS_STATUS.join(", ")}` }, 400);
     }
     
@@ -272,7 +332,7 @@ admin.post("/users", async (c) => {
       return c.json({ success: false, error: "expiresAt must be a valid ISO date" }, 400);
     }
 
-    const newUser = createUserObject({ ...body, email });
+    const newUser = createUserObject({ ...body, email, role: normalizedRole || "user", accessStatus: normalizedStatus || "active" });
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -335,12 +395,20 @@ admin.put("/users/:id", async (c) => {
       }
     }
     
-    if (body.role && !ALLOWED_ROLES.includes(body.role)) {
-      return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")}` }, 400);
+    if (body.role !== undefined) {
+      const normalizedRole = normalizeRole(body.role);
+      if (body.role && normalizedRole === null) {
+        return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")} (or aliases: administrator, mod)` }, 400);
+      }
+      body.role = normalizedRole || "user";
     }
     
-    if (body.accessStatus && !ALLOWED_ACCESS_STATUS.includes(body.accessStatus)) {
-      return c.json({ success: false, error: `accessStatus must be one of: ${ALLOWED_ACCESS_STATUS.join(", ")}` }, 400);
+    if (body.accessStatus !== undefined) {
+      const normalizedStatus = normalizeAccessStatus(body.accessStatus);
+      if (body.accessStatus && normalizedStatus === null) {
+        return c.json({ success: false, error: `accessStatus must be one of: ${ALLOWED_ACCESS_STATUS.join(", ")}` }, 400);
+      }
+      body.accessStatus = normalizedStatus || "active";
     }
     
     if (body.expiresAt && isNaN(Date.parse(body.expiresAt))) {
