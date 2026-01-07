@@ -1,0 +1,87 @@
+Jesteś asystentem-koderem w repozytorium BabaTVBackend (Node + Hono). 
+W PRODUKCJI frontend admin panel woła endpoint /api/admin/users, ale backend zwraca 404. 
+Musimy dodać PEŁNE zarządzanie użytkownikami (CRUD) w backendzie, raz a dobrze.
+
+KONTEKST:
+- Backend używa Hono i ma już: app.route("/api/admin", adminRoutes);
+- adminRoutes jest w pliku routes/admin.js (albo podobnym) i zawiera logowanie admina (admin.post("/login"...)).
+- Jest authMiddleware w ../middleware/authMiddleware.js.
+- Jest Supabase helper: createClient z ../utils/supabase.js.
+- W kodzie widać też dataStore: userMeta (in-memory). To może być fallback, ale docelowo zapis ma iść do Supabase.
+
+CEL:
+Dodać komplet endpointów admin users:
+1) GET    /api/admin/users
+2) POST   /api/admin/users
+3) PUT    /api/admin/users/:id
+4) DELETE /api/admin/users/:id
+
+WYMAGANIA FUNKCJONALNE:
+A) Autoryzacja
+- Wszystkie endpointy /users mają wymagać admin JWT: authMiddleware("admin") (albo zgodnie z istniejącym authMiddleware w projekcie).
+- Jeśli brak/niepoprawny token: 401 JSON.
+
+B) Model użytkownika (związany z UI zakładkami: Dane, Kontakt, Bank, Social, Konto)
+Zaimplementuj strukturę użytkownika w backendzie jako JSON (przechowywany w Supabase w jednej tabeli):
+- id: string (uuid lub generateId() jeśli istnieje helper)
+- email: string (wymagane, lowercase, unikalne)
+- firstName: string (wymagane)
+- lastName: string (wymagane)
+
+Kontakt:
+- phone: string | null
+- city: string | null
+- country: string | null
+- addressLine1: string | null
+- addressLine2: string | null
+- postalCode: string | null
+
+Bank:
+- iban: string | null
+- bic: string | null
+- bankName: string | null
+- accountHolder: string | null
+
+Social:
+- telegram: string | null
+- instagram: string | null
+- youtube: string | null
+- facebook: string | null
+- website: string | null
+
+Konto:
+- role: "user" | "moderator" | "admin" (domyślnie "user")
+- accessStatus: "active" | "suspended" | "expired" (domyślnie "active")
+- expiresAt: string | null (ISO date-time)
+- notes: string | null
+
+Meta:
+- createdAt: string (ISO)
+- updatedAt: string (ISO)
+
+Jeśli frontend wysyła mniej pól – backend ma uzupełniać brakujące nullami/domyslnymi.
+Jeśli frontend wyśle dodatkowe pola – ignoruj je (nie psuj walidacji).
+
+C) Walidacja
+- POST: wymagaj email + firstName + lastName
+- email ma być poprawny (minimum walidacja regex) i konwertowany do lowercase
+- role/accessStatus tylko z dozwolonych wartości; inaczej 400
+- expiresAt jeśli jest: musi być poprawnym ISO (Date.parse != NaN)
+
+D) Supabase (docelowe źródło prawdy)
+- Użyj createClient() i tabeli Supabase.
+- Najpierw spróbuj wykryć jak w tym projekcie nazywa się tabela na użytkowników:
+  - przeszukaj repo po `.from("` oraz po nazwach `users`, `user_meta`, `profiles`, `userMeta`.
+  - jeśli istnieje już ustalona nazwa tabeli, użyj jej.
+  - jeśli nie znajdziesz: użyj `user_meta` jako domyślnej nazwy tabeli (stała USERS_TABLE = process.env.SUPABASE_USERS_TABLE || "user_meta").
+- Operacje:
+  - GET: select z paginacją (range) + count
+  - POST: insert
+  - PUT: update po id
+  - DELETE: delete po id
+- Unikalność email:
+  - jeśli tabela ma unikalny indeks, obsłuż konflikt i zwróć 409.
+  - jeśli nie ma, sprawdź przed insertem czy email już istnieje (select eq email), a gdy istnieje → 409.
+
+E) Fallback (tylko jeśli Supabase nie działa)
+- Jeśli Supabase zwróci błąd typu "relation does not

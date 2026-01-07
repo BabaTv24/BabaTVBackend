@@ -7,9 +7,55 @@ import { rateLimiter, bruteForceLimiter, protectReplay, secureLog } from "../mid
 import { userMeta, ads, coupons, testimonials, chats, videoLoop, generateId } from "../utils/dataStore.js";
 import { createClient } from "../utils/supabase.js";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@babatv24.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "mtvx007@gmail.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const ADMIN_2FA_SECRET = process.env.ADMIN_2FA_SECRET;
+const USERS_TABLE = process.env.SUPABASE_USERS_TABLE || "users";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_ROLES = ["user", "moderator", "admin"];
+const ALLOWED_ACCESS_STATUS = ["active", "suspended", "expired"];
+
+const createUserObject = (data) => {
+  const now = new Date().toISOString();
+  return {
+    id: data.id || generateId(),
+    email: (data.email || "").toLowerCase().trim(),
+    firstName: data.firstName || "",
+    lastName: data.lastName || "",
+    phone: data.phone || null,
+    city: data.city || null,
+    country: data.country || null,
+    addressLine1: data.addressLine1 || null,
+    addressLine2: data.addressLine2 || null,
+    postalCode: data.postalCode || null,
+    iban: data.iban || null,
+    bic: data.bic || null,
+    bankName: data.bankName || null,
+    accountHolder: data.accountHolder || null,
+    telegram: data.telegram || null,
+    instagram: data.instagram || null,
+    youtube: data.youtube || null,
+    facebook: data.facebook || null,
+    website: data.website || null,
+    role: ALLOWED_ROLES.includes(data.role) ? data.role : "user",
+    accessStatus: ALLOWED_ACCESS_STATUS.includes(data.accessStatus) ? data.accessStatus : "active",
+    expiresAt: data.expiresAt || null,
+    notes: data.notes || null,
+    createdAt: data.createdAt || now,
+    updatedAt: now
+  };
+};
+
+const usersInMemory = new Map();
+
+const getSupabaseClient = () => {
+  try {
+    return createClient();
+  } catch {
+    return null;
+  }
+};
 
 const admin = new Hono();
 
@@ -148,20 +194,283 @@ admin.get("/dashboard", async (c) => {
 
 admin.get("/users", async (c) => {
   try {
-    const supabase = createClient();
-    
-    const { data: users, error } = await supabase
-      .from("users")
-      .select("*");
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = parseInt(c.req.query("limit") || "50");
+    const offset = (page - 1) * limit;
 
-    if (error) throw error;
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      const inMemoryUsers = Array.from(usersInMemory.values());
+      const paginatedUsers = inMemoryUsers.slice(offset, offset + limit);
+      return c.json({ 
+        success: true, 
+        users: paginatedUsers.map(u => ({ ...u, meta: userMeta.get(u.id) || { tags: [], isPremium: false } })),
+        pagination: { page, limit, total: inMemoryUsers.length, pages: Math.ceil(inMemoryUsers.length / limit) },
+        source: "memory"
+      });
+    }
+    
+    const { data: users, error, count } = await supabase
+      .from(USERS_TABLE)
+      .select("*", { count: "exact" })
+      .range(offset, offset + limit - 1)
+      .order("createdAt", { ascending: false });
+
+    if (error) {
+      if (error.message.includes("does not exist") || error.code === "42P01") {
+        const inMemoryUsers = Array.from(usersInMemory.values());
+        const paginatedUsers = inMemoryUsers.slice(offset, offset + limit);
+        return c.json({ 
+          success: true, 
+          users: paginatedUsers.map(u => ({ ...u, meta: userMeta.get(u.id) || { tags: [], isPremium: false } })),
+          pagination: { page, limit, total: inMemoryUsers.length, pages: Math.ceil(inMemoryUsers.length / limit) },
+          source: "memory"
+        });
+      }
+      throw error;
+    }
 
     const enrichedUsers = (users || []).map(user => ({
       ...user,
       meta: userMeta.get(user.id) || { tags: [], isPremium: false }
     }));
 
-    return c.json({ success: true, users: enrichedUsers });
+    return c.json({ 
+      success: true, 
+      users: enrichedUsers,
+      pagination: { page, limit, total: count || 0, pages: Math.ceil((count || 0) / limit) },
+      source: "supabase"
+    });
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 400);
+  }
+});
+
+admin.post("/users", async (c) => {
+  try {
+    const body = await c.req.json();
+    
+    if (!body.email || !body.firstName || !body.lastName) {
+      return c.json({ success: false, error: "email, firstName, lastName are required" }, 400);
+    }
+    
+    const email = body.email.toLowerCase().trim();
+    if (!EMAIL_REGEX.test(email)) {
+      return c.json({ success: false, error: "Invalid email format" }, 400);
+    }
+    
+    if (body.role && !ALLOWED_ROLES.includes(body.role)) {
+      return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")}` }, 400);
+    }
+    
+    if (body.accessStatus && !ALLOWED_ACCESS_STATUS.includes(body.accessStatus)) {
+      return c.json({ success: false, error: `accessStatus must be one of: ${ALLOWED_ACCESS_STATUS.join(", ")}` }, 400);
+    }
+    
+    if (body.expiresAt && isNaN(Date.parse(body.expiresAt))) {
+      return c.json({ success: false, error: "expiresAt must be a valid ISO date" }, 400);
+    }
+
+    const newUser = createUserObject({ ...body, email });
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      for (const [, u] of usersInMemory) {
+        if (u.email === email) {
+          return c.json({ success: false, error: "User with this email already exists" }, 409);
+        }
+      }
+      usersInMemory.set(newUser.id, newUser);
+      return c.json({ success: true, user: newUser, source: "memory" }, 201);
+    }
+
+    const { data: existing } = await supabase
+      .from(USERS_TABLE)
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existing) {
+      return c.json({ success: false, error: "User with this email already exists" }, 409);
+    }
+
+    const { data, error } = await supabase
+      .from(USERS_TABLE)
+      .insert(newUser)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.message.includes("does not exist") || error.code === "42P01") {
+        for (const [, u] of usersInMemory) {
+          if (u.email === email) {
+            return c.json({ success: false, error: "User with this email already exists" }, 409);
+          }
+        }
+        usersInMemory.set(newUser.id, newUser);
+        return c.json({ success: true, user: newUser, source: "memory" }, 201);
+      }
+      if (error.code === "23505") {
+        return c.json({ success: false, error: "User with this email already exists" }, 409);
+      }
+      throw error;
+    }
+
+    return c.json({ success: true, user: data, source: "supabase" }, 201);
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 400);
+  }
+});
+
+admin.put("/users/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = await c.req.json();
+
+    if (body.email) {
+      body.email = body.email.toLowerCase().trim();
+      if (!EMAIL_REGEX.test(body.email)) {
+        return c.json({ success: false, error: "Invalid email format" }, 400);
+      }
+    }
+    
+    if (body.role && !ALLOWED_ROLES.includes(body.role)) {
+      return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")}` }, 400);
+    }
+    
+    if (body.accessStatus && !ALLOWED_ACCESS_STATUS.includes(body.accessStatus)) {
+      return c.json({ success: false, error: `accessStatus must be one of: ${ALLOWED_ACCESS_STATUS.join(", ")}` }, 400);
+    }
+    
+    if (body.expiresAt && isNaN(Date.parse(body.expiresAt))) {
+      return c.json({ success: false, error: "expiresAt must be a valid ISO date" }, 400);
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      const memUser = usersInMemory.get(id);
+      if (!memUser) {
+        return c.json({ success: false, error: "User not found" }, 404);
+      }
+      if (body.email && body.email !== memUser.email) {
+        for (const [, u] of usersInMemory) {
+          if (u.email === body.email && u.id !== id) {
+            return c.json({ success: false, error: "Email already in use" }, 409);
+          }
+        }
+      }
+      const updated = createUserObject({ ...memUser, ...body, id, createdAt: memUser.createdAt });
+      usersInMemory.set(id, updated);
+      return c.json({ success: true, user: updated, source: "memory" });
+    }
+
+    const { data: existingUser, error: fetchError } = await supabase
+      .from(USERS_TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError) {
+      if (fetchError.message.includes("does not exist") || fetchError.code === "42P01") {
+        const memUser = usersInMemory.get(id);
+        if (!memUser) {
+          return c.json({ success: false, error: "User not found" }, 404);
+        }
+        if (body.email && body.email !== memUser.email) {
+          for (const [, u] of usersInMemory) {
+            if (u.email === body.email && u.id !== id) {
+              return c.json({ success: false, error: "Email already in use" }, 409);
+            }
+          }
+        }
+        const updated = createUserObject({ ...memUser, ...body, id, createdAt: memUser.createdAt });
+        usersInMemory.set(id, updated);
+        return c.json({ success: true, user: updated, source: "memory" });
+      }
+      throw fetchError;
+    }
+
+    if (!existingUser) {
+      return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    if (body.email && body.email !== existingUser.email) {
+      const { data: emailCheck } = await supabase
+        .from(USERS_TABLE)
+        .select("id")
+        .eq("email", body.email)
+        .neq("id", id)
+        .maybeSingle();
+      if (emailCheck) {
+        return c.json({ success: false, error: "Email already in use" }, 409);
+      }
+    }
+
+    const updatedUser = createUserObject({ ...existingUser, ...body, id, createdAt: existingUser.createdAt });
+
+    const { data, error } = await supabase
+      .from(USERS_TABLE)
+      .update(updatedUser)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return c.json({ success: true, user: data, source: "supabase" });
+  } catch (error) {
+    return c.json({ success: false, error: error.message }, 400);
+  }
+});
+
+admin.delete("/users/:id", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      if (!usersInMemory.has(id)) {
+        return c.json({ success: false, error: "User not found" }, 404);
+      }
+      usersInMemory.delete(id);
+      userMeta.delete(id);
+      return c.json({ success: true, message: "User deleted", source: "memory" });
+    }
+
+    const { data: existingUser, error: fetchError } = await supabase
+      .from(USERS_TABLE)
+      .select("id")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError) {
+      if (fetchError.message.includes("does not exist") || fetchError.code === "42P01") {
+        if (!usersInMemory.has(id)) {
+          return c.json({ success: false, error: "User not found" }, 404);
+        }
+        usersInMemory.delete(id);
+        userMeta.delete(id);
+        return c.json({ success: true, message: "User deleted", source: "memory" });
+      }
+      throw fetchError;
+    }
+
+    if (!existingUser) {
+      return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    const { error } = await supabase
+      .from(USERS_TABLE)
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+
+    userMeta.delete(id);
+
+    return c.json({ success: true, message: "User deleted", source: "supabase" });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 400);
   }
