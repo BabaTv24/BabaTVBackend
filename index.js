@@ -106,7 +106,7 @@ app.notFound((c) => {
 
 const port = Number(process.env.PORT) || 5000;
 
-console.log(`BabaTV24 Backend ULTRA-PRO SECURITY running on port ${port}`);
+console.log(`BabaTV24 Backend v2.1.0 ULTRA-PRO SECURITY running on port ${port}`);
 
 serve({
   fetch: app.fetch,

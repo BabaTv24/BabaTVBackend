@@ -69,35 +69,42 @@ const convertUserToCamelCase = (user) => {
   return result;
 };
 
+const ALLOWED_DB_COLUMNS = [
+  "email", "firstName", "lastName", "phone", "address", "city", "country",
+  "postalCode", "bankAccount", "facebookUrl", "instagramUrl", "linkedinUrl",
+  "tiktokUrl", "twitterUrl", "youtubeUrl", "role", "accessStatus", "externalId",
+  "expiresAt", "password_hash", "createdAt", "updatedAt"
+];
+
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
   
   const rawPayload = {
     email: (data.email || "").toLowerCase().trim(),
-    first_name: data.firstName || data.first_name || "",
-    last_name: data.lastName || data.last_name || "",
+    firstName: data.firstName || data.first_name || "",
+    lastName: data.lastName || data.last_name || "",
     phone: data.phone || null,
     address: data.address || data.addressLine1 || null,
     city: data.city || null,
     country: data.country || null,
-    postal_code: data.postalCode || data.postal_code || null,
-    bank_account: data.bankAccount || data.bank_account || null,
-    facebook_url: data.facebookUrl || data.facebook_url || null,
-    instagram_url: data.instagramUrl || data.instagram_url || null,
-    linkedin_url: data.linkedinUrl || data.linkedin_url || null,
-    tiktok_url: data.tiktokUrl || data.tiktok_url || null,
-    twitter_url: data.twitterUrl || data.twitter_url || null,
-    youtube_url: data.youtubeUrl || data.youtube_url || null,
+    postalCode: data.postalCode || data.postal_code || null,
+    bankAccount: data.bankAccount || data.bank_account || null,
+    facebookUrl: data.facebookUrl || data.facebook_url || null,
+    instagramUrl: data.instagramUrl || data.instagram_url || null,
+    linkedinUrl: data.linkedinUrl || data.linkedin_url || null,
+    tiktokUrl: data.tiktokUrl || data.tiktok_url || null,
+    twitterUrl: data.twitterUrl || data.twitter_url || null,
+    youtubeUrl: data.youtubeUrl || data.youtube_url || null,
     role: normalizeRole(data.role) || "user",
-    access_status: data.accessStatus || data.access_status || "active",
+    accessStatus: data.accessStatus || data.access_status || "active",
     password_hash: data.password_hash,
-    created_at: now,
-    updated_at: now
+    createdAt: now,
+    updatedAt: now
   };
   
   const payload = {};
   for (const [key, value] of Object.entries(rawPayload)) {
-    if (value !== null && value !== undefined && value !== "") {
+    if (ALLOWED_DB_COLUMNS.includes(key) && value !== null && value !== undefined && value !== "") {
       payload[key] = value;
     }
   }
@@ -427,10 +434,10 @@ admin.post("/users", async (c) => {
       const response = { 
         success: true, 
         user: convertUserToCamelCase(userWithoutHash), 
-        tempPasswordGenerated: !!tempPassword,
         source: "memory" 
       };
-      console.log(`[ADMIN] User created: ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
+      if (tempPassword) response.generatedPassword = tempPassword;
+      console.log(`[ADMIN] User created: ${email}, role: ${normalizedRole || "user"}, passwordGenerated: ${!!tempPassword}`);
       return c.json(response, 201);
     }
 
@@ -475,10 +482,10 @@ admin.post("/users", async (c) => {
         const response = { 
           success: true, 
           user: convertUserToCamelCase(userWithoutHash), 
-          tempPasswordGenerated: !!tempPassword,
           source: "memory" 
         };
-        console.log(`[ADMIN] User created (fallback): ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
+        if (tempPassword) response.generatedPassword = tempPassword;
+        console.log(`[ADMIN] User created (fallback): ${email}, role: ${normalizedRole || "user"}, passwordGenerated: ${!!tempPassword}`);
         return c.json(response, 201);
       }
       if (error.code === "23505") {
@@ -495,10 +502,10 @@ admin.post("/users", async (c) => {
     const response = { 
       success: true, 
       user: convertUserToCamelCase(userWithoutHash), 
-      tempPasswordGenerated: !!tempPassword,
       source: "supabase" 
     };
-    console.log(`[ADMIN] User created in Supabase: ${email}, role: ${normalizedRole || "user"}, tempPasswordGenerated: ${!!tempPassword}`);
+    if (tempPassword) response.generatedPassword = tempPassword;
+    console.log(`[ADMIN] User created in Supabase: ${email}, role: ${normalizedRole || "user"}, passwordGenerated: ${!!tempPassword}`);
     return c.json(response, 201);
   } catch (error) {
     console.error("[ADMIN] POST /api/admin/users error:", error.message);
@@ -602,28 +609,28 @@ admin.put("/users/:id", async (c) => {
     const now = new Date().toISOString();
     const rawUpdate = {
       email: body.email || undefined,
-      first_name: body.firstName || body.first_name || undefined,
-      last_name: body.lastName || body.last_name || undefined,
+      firstName: body.firstName || body.first_name || undefined,
+      lastName: body.lastName || body.last_name || undefined,
       phone: body.phone || undefined,
       address: body.address || body.addressLine1 || undefined,
       city: body.city || undefined,
       country: body.country || undefined,
-      postal_code: body.postalCode || body.postal_code || undefined,
-      bank_account: body.bankAccount || body.bank_account || undefined,
-      facebook_url: body.facebookUrl || body.facebook_url || undefined,
-      instagram_url: body.instagramUrl || body.instagram_url || undefined,
-      linkedin_url: body.linkedinUrl || body.linkedin_url || undefined,
-      tiktok_url: body.tiktokUrl || body.tiktok_url || undefined,
-      twitter_url: body.twitterUrl || body.twitter_url || undefined,
-      youtube_url: body.youtubeUrl || body.youtube_url || undefined,
-      role: body.role || undefined,
-      access_status: body.accessStatus || body.access_status || undefined,
-      updated_at: now
+      postalCode: body.postalCode || body.postal_code || undefined,
+      bankAccount: body.bankAccount || body.bank_account || undefined,
+      facebookUrl: body.facebookUrl || body.facebook_url || undefined,
+      instagramUrl: body.instagramUrl || body.instagram_url || undefined,
+      linkedinUrl: body.linkedinUrl || body.linkedin_url || undefined,
+      tiktokUrl: body.tiktokUrl || body.tiktok_url || undefined,
+      twitterUrl: body.twitterUrl || body.twitter_url || undefined,
+      youtubeUrl: body.youtubeUrl || body.youtube_url || undefined,
+      role: body.role ? normalizeRole(body.role) : undefined,
+      accessStatus: body.accessStatus || body.access_status || undefined,
+      updatedAt: now
     };
     
     const updatePayload = {};
     for (const [key, value] of Object.entries(rawUpdate)) {
-      if (value !== undefined) {
+      if (ALLOWED_DB_COLUMNS.includes(key) && value !== undefined) {
         updatePayload[key] = value;
       }
     }
