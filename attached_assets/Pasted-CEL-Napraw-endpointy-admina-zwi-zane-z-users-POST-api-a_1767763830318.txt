@@ -1,0 +1,52 @@
+CEL:
+Napraw endpointy admina związane z users (POST /api/admin/users, GET /api/admin/users itd.) tak, aby działały z Supabase oraz frontendem na babatv24.com.
+Aktualnie są błędy typu:
+- "Could not find the 'first_name' column ... schema cache"
+- "Could not find the 'updated_at' column ..."
+- "Could not find the 'bankAccount' column ..."
+- "null value in column password_hash violates not-null constraint"
+- rola przychodzi jako "USER" zamiast "user"
+
+WYMAGANIA:
+1) Zlokalizuj handler który obsługuje tworzenie użytkownika (POST na /api/admin/users lub podobnie w adminRoutes).
+2) Zaimplementuj normalizację payloadu: przyjmuj zarówno camelCase jak i snake_case.
+   Przykład wejścia z frontu:
+   { email, firstName, lastName, phone, address, city, country, postalCode, bankAccount, facebookUrl, instagramUrl, linkedinUrl, tiktokUrl, twitterUrl, youtubeUrl, role }
+3) Przed insertem do Supabase zmapuj na KOLUMN Y DB (preferuj snake_case):
+   email -> email
+   firstName/first_name -> first_name
+   lastName/last_name -> last_name
+   phone -> phone
+   address/addressLine1 -> address
+   postalCode/postal_code -> postal_code
+   bankAccount/bank_account -> bank_account
+   facebookUrl/facebook_url -> facebook_url
+   instagramUrl/instagram_url -> instagram_url
+   linkedinUrl/linkedin_url -> linkedin_url
+   tiktokUrl/tiktok_url -> tiktok_url
+   twitterUrl/twitter_url -> twitter_url
+   youtubeUrl/youtube_url -> youtube_url
+   role -> role (zawsze lowercase: 'user' | 'moderator' | 'admin')
+   accessStatus/access_status -> access_status (domyślnie 'active')
+   externalId/external_id -> external_id (opcjonalnie; NIE wkładaj tego do kolumny id uuid)
+4) NIE wysyłaj do Supabase pól, które nie istnieją. (Usuń/odfiltruj undefined/null pola z obiektu insert.)
+5) Wymuś password_hash:
+   - jeśli payload nie zawiera hasła, wygeneruj tymczasowe (losowy string), zahashuj bcrypt i zapisz do password_hash.
+   - NIE zwracaj hasła w response (bezpiecznie). Możesz zalogować tylko w trybie dev.
+6) Obsłuż created_at/updated_at:
+   - jeśli w DB istnieje updated_at => ustaw now()
+   - jeśli nie istnieje, nie wysyłaj updated_at (żeby nie waliło błędem).
+   (Opcjonalnie: dodaj prostą funkcję “detect columns” przez select z limit=0 i sprawdzenie error/details)
+7) Response:
+   - 201 i { success:true, user:<zwrócony rekord> } po udanym insercie
+   - sensowne 400 z listą brakujących pól gdy email/firstName/lastName brak
+8) Upewnij się, że supabase client dla admin operacji używa SERVICE ROLE (SUPABASE_SERVICE_ROLE_KEY) na backendzie.
+9) Dodaj szybki test curl w README lub komentarzu (login admin -> token -> POST users).
+10) Po zmianach uruchom test lokalny w Replit i potwierdź:
+   - POST /api/admin/users tworzy usera
+   - błąd roli 'USER' nie występuje (normalizacja działa)
+   - brak błędów schema cache przez wysyłanie nieistniejących kolumn
+
+DODATKOWA UWAGA:
+Jeżeli obecnie endpoint przyjmuje first_name/last_name, to ma przyjmować też firstName/lastName (i odwrotnie).
+Wszystko ma być kompatybilne z frontem działającym na https://babatv24.com

@@ -59,29 +59,40 @@ const generateTempPassword = (length = 14) => {
 
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
-  const payload = {
+  
+  const rawPayload = {
     email: (data.email || "").toLowerCase().trim(),
-    firstName: data.firstName || "",
-    lastName: data.lastName || "",
+    first_name: data.firstName || data.first_name || "",
+    last_name: data.lastName || data.last_name || "",
     phone: data.phone || null,
-    address: data.address || null,
+    address: data.address || data.addressLine1 || null,
     city: data.city || null,
     country: data.country || null,
-    postalCode: data.postalCode || null,
-    bankAccount: data.bankAccount || null,
-    facebookUrl: data.facebookUrl || null,
-    instagramUrl: data.instagramUrl || null,
-    linkedinUrl: data.linkedinUrl || null,
-    tiktokUrl: data.tiktokUrl || null,
-    twitterUrl: data.twitterUrl || null,
-    youtubeUrl: data.youtubeUrl || null,
+    postal_code: data.postalCode || data.postal_code || null,
+    bank_account: data.bankAccount || data.bank_account || null,
+    facebook_url: data.facebookUrl || data.facebook_url || null,
+    instagram_url: data.instagramUrl || data.instagram_url || null,
+    linkedin_url: data.linkedinUrl || data.linkedin_url || null,
+    tiktok_url: data.tiktokUrl || data.tiktok_url || null,
+    twitter_url: data.twitterUrl || data.twitter_url || null,
+    youtube_url: data.youtubeUrl || data.youtube_url || null,
     role: normalizeRole(data.role) || "user",
-    accessStatus: data.accessStatus || "active",
-    externalId: data.externalId || generateId(),
+    access_status: data.accessStatus || data.access_status || "active",
     password_hash: data.password_hash,
-    createdAt: data.createdAt || now,
-    updatedAt: now
+    created_at: now,
+    updated_at: now
   };
+  
+  const payload = {};
+  for (const [key, value] of Object.entries(rawPayload)) {
+    if (value !== null && value !== undefined && value !== "") {
+      payload[key] = value;
+    }
+  }
+  
+  if (rawPayload.password_hash) {
+    payload.password_hash = rawPayload.password_hash;
+  }
   
   if (IS_DEV) {
     console.log("[DEV] createSupabasePayload - klucze:", Object.keys(payload).join(", "));
