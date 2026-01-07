@@ -1,0 +1,71 @@
+Jesteś senior full-stack/Node.js. Pracujesz w repozytorium BabaTVBackend (Express/Node) deployowanym na Render i używającym Supabase (Postgres + PostgREST).
+
+CEL:
+Napraw endpointy admina dla użytkowników tak, aby panel https://babatv24.com/admin/users mógł:
+- pobrać listę użytkowników,
+- dodać nowego użytkownika,
+bez błędów typu:
+- "Could not find the 'first_name' / 'bankAccount' / 'updated_at' column of 'users' in the schema cache"
+- "role must be one of: user, moderator, admin"
+- "null value in column 'password_hash' violates not-null constraint"
+
+KONTEKST:
+Frontend wysyła payload w camelCase, np.:
+{
+  email: "weeclubberlin@gmail.com",
+  firstName: "Thomas",
+  lastName: "Holzman",
+  phone: "",
+  address: "",
+  bankAccount: "",
+  city: "",
+  country: "",
+  postalCode: "",
+  role: "USER",
+  facebookUrl: "",
+  instagramUrl: "",
+  linkedinUrl: "",
+  tiktokUrl: "",
+  twitterUrl: "",
+  youtubeUrl: ""
+}
+W Supabase tabela "users" ma wiele pól w camelCase (np firstName, lastName, bankAccount, accessStatus, expiresAt itd.) oraz standardowe created_at/updated_at.
+
+WYMAGANIA (konkretne zmiany):
+1) Normalizacja roli:
+   - Backend ma akceptować role z frontu w różnych formach ("USER", "user", "Admin", itp.)
+   - Mapuj do: "user" | "moderator" | "admin"
+   - Domyślnie: "user"
+
+2) Mapowanie pól na kolumny DB:
+   - Backend ma używać nazw kolumn zgodnych z Supabase.
+   - Jeżeli w DB kolumny są camelCase (np. firstName), to insert/update MUSI używać dokładnie tych nazw.
+   - Usuń używanie snake_case (first_name itp.) jeśli DB jest camelCase.
+   - Dodaj małą funkcję mapującą/whitelistującą pola wejściowe → żeby nie wysyłać do DB nieistniejących kluczy.
+
+3) password_hash:
+   - Przy tworzeniu użytkownika backend MA zawsze zapisać password_hash.
+   - Dodaj do endpointu POST /api/admin/users obsługę pola "password" (opcjonalnie):
+       a) jeśli frontend wyśle password → zahashuj (bcrypt) → zapisz w password_hash
+       b) jeśli frontend NIE wyśle password → wygeneruj losowe hasło (np 12–16 znaków), zahashuj i zapisz, a w odpowiedzi (TYLKO dla admin endpointu) zwróć generatedPassword żeby admin mógł skopiować.
+   - Nie próbuj zmieniać constraintów DB w runtime.
+
+4) Spójne odpowiedzi API:
+   - W razie błędu zwracaj JSON: { success:false, error:"...", details:any }
+   - W razie sukcesu: { success:true, user:{...} } oraz ewentualnie generatedPassword.
+
+5) Testy ręczne (dodaj w README lub komentarzu):
+   - curl POST /api/admin/users z minimalnym payloadem (email, firstName, lastName, role) oraz bez password
+   - curl POST z password
+   - curl GET /api/admin/users
+   Oczekiwane: 200 i brak 400.
+
+6) Upewnij się, że CORS pozwala na https://babatv24.com oraz credentials jeśli są używane.
+
+DODATKOWO:
+- Nie ruszaj płatności/PayPal/Stripe.
+- Zadbaj o to, żeby Render deploy był “zero-config” (tylko kod).
+- Po zmianach zaktualizuj version endpointu (jeśli jest) lub log startowy, żeby było wiadomo że build jest nowy.
+
+WYNIK:
+Zacommituj zmiany i upewnij się, że endpoint POST /api/admin/users nie wali już błędami z kolumnami i password_hash.
