@@ -314,6 +314,10 @@ admin.post("/logout", async (c) => {
   return c.json({ success: true, message: "Logged out successfully" });
 });
 
+admin.get("/logout", async (c) => {
+  return c.json({ success: true, message: "Logged out successfully" });
+});
+
 admin.use("/*", authMiddleware);
 
 admin.get("/stats", async (c) => {
