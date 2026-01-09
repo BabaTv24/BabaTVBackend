@@ -795,6 +795,60 @@ const handleUserUpdate = async (c) => {
 
 admin.patch("/users/:id", handleUserUpdate);
 
+admin.patch("/users/:id/role", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = await c.req.json();
+    let { role } = body;
+
+    if (!role) {
+      return c.json({ success: false, error: "role is required" }, 400);
+    }
+
+    role = String(role).toLowerCase();
+    const normalizedRole = normalizeRole(role);
+    
+    if (normalizedRole === null) {
+      return c.json({ success: false, error: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}` }, 400);
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      const memUser = usersInMemory.get(id);
+      if (!memUser) {
+        return c.json({ success: false, error: "User not found" }, 404);
+      }
+      const updated = { ...memUser, role: normalizedRole, updatedAt: new Date().toISOString() };
+      usersInMemory.set(id, updated);
+      return c.json({ success: true, user: normalizeUserResponse(updated), source: "memory" });
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from(USERS_TABLE)
+      .update({ role: normalizedRole, updated_at: now, updatedAt: now })
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("[ADMIN] PATCH /users/:id/role error:", error.message, error.details);
+      return c.json({ success: false, error: error.message, details: error.details ?? null }, 400);
+    }
+
+    if (!data) {
+      return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    console.log(`[ADMIN] Role updated for user ${id}: ${normalizedRole}`);
+    return c.json({ success: true, user: normalizeUserResponse(data), source: "supabase" });
+  } catch (e) {
+    console.error("[ADMIN] Role endpoint crash:", e.message);
+    return c.json({ success: false, error: "Server error" }, 500);
+  }
+});
+
 admin.delete("/users/:id", async (c) => {
   try {
     const id = c.req.param("id");
