@@ -59,67 +59,107 @@ const generateTempPassword = (length = 16) => {
 
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
-const convertUserToCamelCase = (user) => {
+const normalizeUserResponse = (user) => {
   if (!user) return user;
-  const result = {};
-  for (const [key, value] of Object.entries(user)) {
-    if (key === "password_hash") continue;
-    result[snakeToCamel(key)] = value;
-  }
-  return result;
+  return {
+    id: user.id,
+    publicId: user.public_id || user.publicId || null,
+    email: user.email,
+    firstName: user.firstName || user.first_name || null,
+    lastName: user.lastName || user.last_name || null,
+    phone: user.phone || null,
+    address: user.address || null,
+    city: user.city || null,
+    country: user.country || null,
+    postalCode: user.postalCode || user.postal_code || null,
+    bankAccount: user.bankAccount || user.bank_account || null,
+    facebookUrl: user.facebookUrl || user.facebook_url || null,
+    instagramUrl: user.instagramUrl || user.instagram_url || null,
+    linkedinUrl: user.linkedinUrl || user.linkedin_url || null,
+    tiktokUrl: user.tiktokUrl || user.tiktok_url || null,
+    twitterUrl: user.twitterUrl || user.twitter_url || null,
+    youtubeUrl: user.youtubeUrl || user.youtube_url || null,
+    role: user.role || "user",
+    accessStatus: user.accessStatus || user.access_status || "active",
+    expiresAt: user.expiresAt || user.expires_at || null,
+    createdAt: user.createdAt || user.created_at || null,
+    updatedAt: user.updatedAt || user.updated_at || null
+  };
 };
 
-const ALLOWED_DB_COLUMNS = [
-  "email", "firstName", "lastName", "phone", "address", "city", "country",
-  "postalCode", "bankAccount", "facebookUrl", "instagramUrl", "linkedinUrl",
-  "tiktokUrl", "twitterUrl", "youtubeUrl", "role", "accessStatus", "externalId",
-  "expiresAt", "password_hash", "createdAt", "updatedAt"
-];
+const convertUserToCamelCase = normalizeUserResponse;
 
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
   
-  const rawPayload = {
+  const firstName = data.firstName || data.first_name || "";
+  const lastName = data.lastName || data.last_name || "";
+  const accessStatus = data.accessStatus || data.access_status || "active";
+  const postalCode = data.postalCode || data.postal_code || null;
+  const bankAccount = data.bankAccount || data.bank_account || null;
+  const facebookUrl = data.facebookUrl || data.facebook_url || null;
+  const instagramUrl = data.instagramUrl || data.instagram_url || null;
+  const linkedinUrl = data.linkedinUrl || data.linkedin_url || null;
+  const tiktokUrl = data.tiktokUrl || data.tiktok_url || null;
+  const twitterUrl = data.twitterUrl || data.twitter_url || null;
+  const youtubeUrl = data.youtubeUrl || data.youtube_url || null;
+  
+  const payload = {
     email: (data.email || "").toLowerCase().trim(),
-    firstName: data.firstName || data.first_name || "",
-    lastName: data.lastName || data.last_name || "",
+    firstName: firstName,
+    first_name: firstName,
+    lastName: lastName,
+    last_name: lastName,
     phone: data.phone || null,
     address: data.address || data.addressLine1 || null,
     city: data.city || null,
     country: data.country || null,
-    postalCode: data.postalCode || data.postal_code || null,
-    bankAccount: data.bankAccount || data.bank_account || null,
-    facebookUrl: data.facebookUrl || data.facebook_url || null,
-    instagramUrl: data.instagramUrl || data.instagram_url || null,
-    linkedinUrl: data.linkedinUrl || data.linkedin_url || null,
-    tiktokUrl: data.tiktokUrl || data.tiktok_url || null,
-    twitterUrl: data.twitterUrl || data.twitter_url || null,
-    youtubeUrl: data.youtubeUrl || data.youtube_url || null,
+    postalCode: postalCode,
+    postal_code: postalCode,
+    bankAccount: bankAccount,
+    bank_account: bankAccount,
+    facebookUrl: facebookUrl,
+    facebook_url: facebookUrl,
+    instagramUrl: instagramUrl,
+    instagram_url: instagramUrl,
+    linkedinUrl: linkedinUrl,
+    linkedin_url: linkedinUrl,
+    tiktokUrl: tiktokUrl,
+    tiktok_url: tiktokUrl,
+    twitterUrl: twitterUrl,
+    twitter_url: twitterUrl,
+    youtubeUrl: youtubeUrl,
+    youtube_url: youtubeUrl,
     role: normalizeRole(data.role) || "user",
-    accessStatus: data.accessStatus || data.access_status || "active",
+    accessStatus: accessStatus,
+    access_status: accessStatus,
     password_hash: data.password_hash,
     createdAt: now,
-    updatedAt: now
+    created_at: now,
+    updatedAt: now,
+    updated_at: now,
+    paid: false,
+    source: "admin",
+    payment_method: "none",
+    payment_id: "",
+    tags: [],
+    last_active: now
   };
   
-  const payload = {};
-  for (const [key, value] of Object.entries(rawPayload)) {
-    if (ALLOWED_DB_COLUMNS.includes(key) && value !== null && value !== undefined && value !== "") {
-      payload[key] = value;
+  const cleanPayload = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== null && value !== undefined) {
+      cleanPayload[key] = value;
     }
   }
   
-  if (rawPayload.password_hash) {
-    payload.password_hash = rawPayload.password_hash;
-  }
-  
   if (IS_DEV) {
-    console.log("[DEV] createSupabasePayload - klucze:", Object.keys(payload).join(", "));
-    console.log("[DEV] role po normalizacji:", payload.role);
-    console.log("[DEV] password_hash ustawiony:", !!payload.password_hash);
+    console.log("[DEV] createSupabasePayload - klucze:", Object.keys(cleanPayload).join(", "));
+    console.log("[DEV] role po normalizacji:", cleanPayload.role);
+    console.log("[DEV] password_hash ustawiony:", !!cleanPayload.password_hash);
   }
   
-  return payload;
+  return cleanPayload;
 };
 
 const createUserObjectForMemory = (data) => {
@@ -607,33 +647,41 @@ admin.put("/users/:id", async (c) => {
     }
 
     const now = new Date().toISOString();
-    const rawUpdate = {
-      email: body.email || undefined,
-      firstName: body.firstName || body.first_name || undefined,
-      lastName: body.lastName || body.last_name || undefined,
-      phone: body.phone || undefined,
-      address: body.address || body.addressLine1 || undefined,
-      city: body.city || undefined,
-      country: body.country || undefined,
-      postalCode: body.postalCode || body.postal_code || undefined,
-      bankAccount: body.bankAccount || body.bank_account || undefined,
-      facebookUrl: body.facebookUrl || body.facebook_url || undefined,
-      instagramUrl: body.instagramUrl || body.instagram_url || undefined,
-      linkedinUrl: body.linkedinUrl || body.linkedin_url || undefined,
-      tiktokUrl: body.tiktokUrl || body.tiktok_url || undefined,
-      twitterUrl: body.twitterUrl || body.twitter_url || undefined,
-      youtubeUrl: body.youtubeUrl || body.youtube_url || undefined,
-      role: body.role ? normalizeRole(body.role) : undefined,
-      accessStatus: body.accessStatus || body.access_status || undefined,
+    
+    const firstName = body.firstName || body.first_name;
+    const lastName = body.lastName || body.last_name;
+    const accessStatus = body.accessStatus || body.access_status;
+    const postalCode = body.postalCode || body.postal_code;
+    const bankAccount = body.bankAccount || body.bank_account;
+    const facebookUrl = body.facebookUrl || body.facebook_url;
+    const instagramUrl = body.instagramUrl || body.instagram_url;
+    const linkedinUrl = body.linkedinUrl || body.linkedin_url;
+    const tiktokUrl = body.tiktokUrl || body.tiktok_url;
+    const twitterUrl = body.twitterUrl || body.twitter_url;
+    const youtubeUrl = body.youtubeUrl || body.youtube_url;
+    
+    const updatePayload = {
+      updated_at: now,
       updatedAt: now
     };
     
-    const updatePayload = {};
-    for (const [key, value] of Object.entries(rawUpdate)) {
-      if (ALLOWED_DB_COLUMNS.includes(key) && value !== undefined) {
-        updatePayload[key] = value;
-      }
-    }
+    if (body.email) updatePayload.email = body.email;
+    if (firstName) { updatePayload.firstName = firstName; updatePayload.first_name = firstName; }
+    if (lastName) { updatePayload.lastName = lastName; updatePayload.last_name = lastName; }
+    if (body.phone !== undefined) updatePayload.phone = body.phone;
+    if (body.address !== undefined) updatePayload.address = body.address;
+    if (body.city !== undefined) updatePayload.city = body.city;
+    if (body.country !== undefined) updatePayload.country = body.country;
+    if (postalCode !== undefined) { updatePayload.postalCode = postalCode; updatePayload.postal_code = postalCode; }
+    if (bankAccount !== undefined) { updatePayload.bankAccount = bankAccount; updatePayload.bank_account = bankAccount; }
+    if (facebookUrl !== undefined) { updatePayload.facebookUrl = facebookUrl; updatePayload.facebook_url = facebookUrl; }
+    if (instagramUrl !== undefined) { updatePayload.instagramUrl = instagramUrl; updatePayload.instagram_url = instagramUrl; }
+    if (linkedinUrl !== undefined) { updatePayload.linkedinUrl = linkedinUrl; updatePayload.linkedin_url = linkedinUrl; }
+    if (tiktokUrl !== undefined) { updatePayload.tiktokUrl = tiktokUrl; updatePayload.tiktok_url = tiktokUrl; }
+    if (twitterUrl !== undefined) { updatePayload.twitterUrl = twitterUrl; updatePayload.twitter_url = twitterUrl; }
+    if (youtubeUrl !== undefined) { updatePayload.youtubeUrl = youtubeUrl; updatePayload.youtube_url = youtubeUrl; }
+    if (body.role) updatePayload.role = normalizeRole(body.role);
+    if (accessStatus !== undefined) { updatePayload.accessStatus = accessStatus; updatePayload.access_status = accessStatus; }
 
     if (IS_DEV) {
       console.log("[DEV] PUT /api/admin/users/:id - update payload:", JSON.stringify(updatePayload, null, 2));
@@ -655,9 +703,97 @@ admin.put("/users/:id", async (c) => {
 
     return c.json({ success: true, user: convertUserToCamelCase(data), source: "supabase" });
   } catch (error) {
+    console.error("[ADMIN] PUT /api/admin/users/:id error:", error.message);
     return c.json({ success: false, error: error.message }, 400);
   }
 });
+
+const handleUserUpdate = async (c) => {
+  try {
+    const id = c.req.param("id");
+    const body = await c.req.json();
+
+    if (body.email) {
+      body.email = body.email.toLowerCase().trim();
+      if (!EMAIL_REGEX.test(body.email)) {
+        return c.json({ success: false, error: "Invalid email format" }, 400);
+      }
+    }
+    
+    if (body.role !== undefined) {
+      const normalizedRole = normalizeRole(body.role);
+      if (body.role && normalizedRole === null) {
+        return c.json({ success: false, error: `role must be one of: ${ALLOWED_ROLES.join(", ")}` }, 400);
+      }
+      body.role = normalizedRole || "user";
+    }
+
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      const memUser = usersInMemory.get(id);
+      if (!memUser) {
+        return c.json({ success: false, error: "User not found" }, 404);
+      }
+      const updated = { ...memUser, ...body, id, createdAt: memUser.createdAt, updatedAt: new Date().toISOString() };
+      usersInMemory.set(id, updated);
+      return c.json({ success: true, user: normalizeUserResponse(updated), source: "memory" });
+    }
+
+    const { data: existingUser, error: fetchError } = await supabase
+      .from(USERS_TABLE)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("[ADMIN] Supabase fetch error:", fetchError.message, fetchError.details);
+      return c.json({ success: false, error: fetchError.message, details: fetchError.details }, 400);
+    }
+
+    if (!existingUser) {
+      return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    const now = new Date().toISOString();
+    const firstName = body.firstName || body.first_name;
+    const lastName = body.lastName || body.last_name;
+    const accessStatus = body.accessStatus || body.access_status;
+    
+    const updatePayload = { updated_at: now, updatedAt: now };
+    
+    if (body.email) updatePayload.email = body.email;
+    if (firstName) { updatePayload.firstName = firstName; updatePayload.first_name = firstName; }
+    if (lastName) { updatePayload.lastName = lastName; updatePayload.last_name = lastName; }
+    if (body.phone !== undefined) updatePayload.phone = body.phone;
+    if (body.address !== undefined) updatePayload.address = body.address;
+    if (body.city !== undefined) updatePayload.city = body.city;
+    if (body.country !== undefined) updatePayload.country = body.country;
+    if (body.postalCode !== undefined) { updatePayload.postalCode = body.postalCode; updatePayload.postal_code = body.postalCode; }
+    if (body.bankAccount !== undefined) { updatePayload.bankAccount = body.bankAccount; updatePayload.bank_account = body.bankAccount; }
+    if (body.role) updatePayload.role = normalizeRole(body.role);
+    if (accessStatus !== undefined) { updatePayload.accessStatus = accessStatus; updatePayload.access_status = accessStatus; }
+
+    const { data, error } = await supabase
+      .from(USERS_TABLE)
+      .update(updatePayload)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[ADMIN] Supabase update error:", error.message, error.details);
+      return c.json({ success: false, error: error.message, details: error.details }, 400);
+    }
+
+    return c.json({ success: true, user: normalizeUserResponse(data), source: "supabase" });
+  } catch (error) {
+    console.error("[ADMIN] PATCH/PUT /api/admin/users/:id error:", error.message);
+    return c.json({ success: false, error: error.message }, 400);
+  }
+};
+
+admin.patch("/users/:id", handleUserUpdate);
 
 admin.delete("/users/:id", async (c) => {
   try {

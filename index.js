@@ -34,8 +34,8 @@ app.use(
       "http://localhost:5000",
       "https://babatvfanpage.replit.dev",
     ],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
     credentials: true,
     maxAge: 86400,
   })
@@ -46,7 +46,7 @@ app.get("/", (c) => {
   return c.json({
     status: "OK",
     message: "BabaTV24 Backend ULTRA-PRO SECURITY",
-    version: "2.1.0",
+    version: "2.2.0",
     frontend: "https://www.babatv24.com",
     environment: process.env.NODE_ENV || "production",
     endpoints: {
@@ -106,7 +106,7 @@ app.notFound((c) => {
 
 const port = Number(process.env.PORT) || 5000;
 
-console.log(`BabaTV24 Backend v2.1.0 ULTRA-PRO SECURITY running on port ${port}`);
+console.log(`BabaTV24 Backend v2.2.0 ULTRA-PRO SECURITY running on port ${port}`);
 
 serve({
   fetch: app.fetch,

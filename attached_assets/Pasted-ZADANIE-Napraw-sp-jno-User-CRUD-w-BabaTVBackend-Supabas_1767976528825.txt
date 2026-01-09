@@ -1,0 +1,68 @@
+ZADANIE: Napraw spójność User CRUD w BabaTVBackend (Supabase/PostgREST) oraz zwracanie ID.
+
+Kontekst:
+- Tabela public.users ma równolegle kolumny camelCase ("firstName","lastName","accessStatus",...) oraz snake_case (first_name,last_name,access_status,...).
+- Frontend wysyła dane w camelCase (firstName, lastName, accessStatus), ale część backendu czyta snake_case -> dlatego imię/nazwisko wychodzi NULL, a w panelu admina "ID: undefined".
+- W admin panelu edycja usera robi request po /api/admin/users/:id i musi używać uuid `id` (nie public_id).
+
+WYMAGANIA:
+1) Wyszukaj w kodzie wszystkie endpointy dotyczące users:
+   - GET /api/admin/users
+   - POST /api/admin/users
+   - PATCH/PUT /api/admin/users/:id  (jeśli istnieje)
+   - GET /api/admin/users/:id (jeśli istnieje)
+
+2) Normalizacja wejścia (request body):
+   - Akceptuj zarówno camelCase jak i snake_case:
+     firstName OR first_name
+     lastName OR last_name
+     accessStatus OR access_status
+   - Następnie ZAPISUJ JEDNOCZEŚNIE do obu wariantów kolumn:
+     first_name = ..., "firstName" = ...
+     last_name  = ..., "lastName"  = ...
+     access_status = ..., "accessStatus" = ...
+   Dzięki temu frontend nie musi się dziś zmieniać, a DB pozostaje spójne.
+
+3) Normalizacja wyjścia (response):
+   - Backend zawsze ma zwracać:
+     id (uuid),
+     public_id (bigint),
+     email,
+     firstName, lastName (camelCase w JSON),
+     accessStatus (camelCase w JSON),
+     role,
+     createdAt/updatedAt (camelCase w JSON)
+   - Jeżeli wartości są w snake_case a camelCase puste (albo odwrotnie), użyj COALESCE.
+
+4) GET /api/admin/users ma wykonywać select zawierający:
+   id, public_id, email,
+   first_name, last_name, access_status, created_at, updated_at,
+   "firstName","lastName","accessStatus","createdAt","updatedAt",
+   role, expiresAt (jeśli jest)
+   Następnie w Node zmapuj to do obiektu z camelCase.
+
+5) POST /api/admin/users:
+   - Waliduj wymagane: email + firstName + lastName (jak teraz)
+   - Przy insert ustaw sensowne defaulty jeżeli kolumny są NOT NULL:
+     paid=false, source='admin', payment_method='none', payment_id='', tags=[]
+     last_active=now()
+     password_hash może być null (jeśli schema pozwala), ale endpoint nie może wywalać 400.
+   - Po insert zwróć znormalizowany obiekt (patrz pkt 3).
+
+6) CORS:
+   - Upewnij się, że cors middleware jest ZAŁOŻONY PRZED ROUTES i obejmuje:
+     origin: https://babatv24.com
+     credentials: true
+     methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+     allowedHeaders: Content-Type, Authorization
+   - Dodaj app.options('*', cors()) żeby preflight zawsze przechodził.
+
+7) Dodaj logowanie błędów z supabase:
+   - Jeśli supabase error, loguj error.message i error.details.
+
+Na końcu: zaktualizuj kod, uruchom lokalnie w Replit, upewnij się że:
+- GET /api/admin/users zwraca id+public_id i firstName/lastName nie są null
+- POST /api/admin/users tworzy usera z firstName/lastName zapisanymi (w obu wariantach kolumn)
+- PATCH/PUT /api/admin/users/:id działa bez "Failed to fetch"
+
+Nie zmieniaj frontendu w tej iteracji – kompatybilność ma być utrzymana przez backend mapping.
