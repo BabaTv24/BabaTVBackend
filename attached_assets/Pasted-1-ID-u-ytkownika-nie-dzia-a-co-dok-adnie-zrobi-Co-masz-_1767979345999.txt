@@ -1,0 +1,86 @@
+1) ID użytkownika nie działa — co dokładnie zrobić
+Co masz w DB
+
+Masz dwa ID:
+
+id = UUID (np. ea4c6e19-...)
+
+public_id = bigint (np. 370) — i to jest idealne „ludzkie ID” do panelu i reflinków.
+
+Dlaczego UI pokazuje pusto
+
+Frontend prawdopodobnie oczekuje publicId albo public_id, a backend zwraca inaczej (albo w ogóle nie mapuje). W tabeli UI masz kolumnę „ID”, ale jest pusta → backend w GET /api/admin/users nie daje pola, które frontend podpina.
+
+Najprostsza naprawa (backend)
+
+W endpointzie, który zwraca listę userów dla admina (GET /api/admin/users) zrób mapowanie:
+
+zawsze zwracaj publicId (camelCase)
+
+opcjonalnie zwracaj też public_id dla pewności
+
+Dodaj w backendzie:
+
+const users = data.map(u => ({
+  id: u.id,
+  publicId: u.public_id,     // <- to ma trafić do UI jako "ID"
+  public_id: u.public_id,    // <- opcjonalnie
+  email: u.email,
+  firstName: u.firstName ?? u.first_name ?? null,
+  lastName:  u.lastName  ?? u.last_name  ?? null,
+  role: u.role ?? "user",
+  accessStatus: u.accessStatus ?? u.access_status ?? "active",
+  createdAt: u.createdAt ?? u.created_at ?? null,
+}));
+res.json({ success: true, users });
+
+
+Jeśli UI pokazuje „ID: undefined” w modalu — to 99% że modal czyta user.publicId, a dostaje tylko public_id albo nic. Powyższe to kończy.
+
+2) Logout admina nie działa — masz 404, więc trzeba dodać endpoint
+
+Frontend wysyła:
+POST https://babatvbackend.onrender.com/api/admin/logout → 404
+
+Czyli dodaj w BabaTVBackend:
+
+Wariant A: macie sesję cookie (server-side)
+app.post("/api/admin/logout", (req, res) => {
+  res.clearCookie("admin_session", { path: "/" }); // nazwa cookie dopasuj!
+  return res.json({ success: true });
+});
+
+Wariant B: macie JWT w localStorage (client-side)
+
+Wtedy backend może zwracać po prostu OK, a frontend usuwa token.
+
+app.post("/api/admin/logout", (req, res) => {
+  return res.json({ success: true });
+});
+
+
+Najważniejsze: endpoint ma istnieć, bo frontend go woła.
+
+Bonus: /api/admin/stats też jest 404 (to nie psuje userów, ale śmieci w konsoli)
+
+Dodaj prosty endpoint żeby UI przestało krzyczeć:
+
+app.get("/api/admin/stats", requireAdminAuth, async (req, res) => {
+  return res.json({
+    success: true,
+    stats: {
+      usersTotal: 0,
+      activeUsers: 0,
+      revenue: 0,
+    },
+  });
+});
+
+
+Później go rozbudujesz.
+
+Co zrobić TERAZ (krótka lista)
+
+Backend: dopisz POST /api/admin/logout (zwraca {success:true}).
+
+Backend: popraw GET /api/admin/users żeby zwracał publicId: public_id.

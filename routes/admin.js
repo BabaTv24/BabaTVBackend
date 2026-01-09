@@ -310,7 +310,53 @@ admin.post("/verify-2fa", async (c) => {
   }
 });
 
+admin.post("/logout", async (c) => {
+  return c.json({ success: true, message: "Logged out successfully" });
+});
+
 admin.use("/*", authMiddleware);
+
+admin.get("/stats", async (c) => {
+  try {
+    const supabase = getSupabaseClient();
+    let usersTotal = 0;
+    let activeUsers = 0;
+
+    if (supabase) {
+      const { count: totalCount } = await supabase
+        .from(USERS_TABLE)
+        .select("*", { count: "exact", head: true });
+      
+      const { count: activeCount } = await supabase
+        .from(USERS_TABLE)
+        .select("*", { count: "exact", head: true })
+        .or("accessStatus.eq.active,access_status.eq.active");
+
+      usersTotal = totalCount || 0;
+      activeUsers = activeCount || 0;
+    } else {
+      usersTotal = usersInMemory.size;
+      activeUsers = Array.from(usersInMemory.values()).filter(u => 
+        (u.accessStatus || u.access_status) === "active"
+      ).length;
+    }
+
+    return c.json({
+      success: true,
+      stats: {
+        usersTotal,
+        activeUsers,
+        revenue: 0
+      }
+    });
+  } catch (error) {
+    console.error("[ADMIN] GET /stats error:", error.message);
+    return c.json({
+      success: true,
+      stats: { usersTotal: 0, activeUsers: 0, revenue: 0 }
+    });
+  }
+});
 
 admin.get("/dashboard", async (c) => {
   try {
