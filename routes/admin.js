@@ -112,6 +112,7 @@ const normalizeUserResponse = (user) => {
     expiresAt: user.expiresAt || user.expires_at || null,
     refCode: user.refCode || user.ref_code || null,
     refLink: (user.refCode || user.ref_code) ? `${APP_URL}/?ref=${user.refCode || user.ref_code}` : null,
+    mustChangePassword: user.mustChangePassword || user.must_change_password || false,
     createdAt: user.createdAt || user.created_at || null,
     updatedAt: user.updatedAt || user.updated_at || null
   };
@@ -168,6 +169,8 @@ const createSupabasePayload = (data) => {
     refCode: refCode,
     ref_code: refCode,
     password_hash: data.password_hash,
+    must_change_password: data.must_change_password !== false,
+    mustChangePassword: data.must_change_password !== false,
     createdAt: now,
     created_at: now,
     updatedAt: now,
@@ -221,6 +224,8 @@ const createUserObjectForMemory = (data) => {
     accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
     refCode: refCode,
     ref_code: refCode,
+    must_change_password: data.must_change_password !== false,
+    mustChangePassword: data.must_change_password !== false,
     externalId: data.externalId || generateId(),
     createdAt: data.createdAt || now,
     updatedAt: now
@@ -1230,9 +1235,16 @@ admin.post("/users/:id/send-invite", async (c) => {
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
+    const now = new Date().toISOString();
     const { error: updateError } = await supabase
       .from(USERS_TABLE)
-      .update({ password_hash, updated_at: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      .update({ 
+        password_hash, 
+        must_change_password: true, 
+        mustChangePassword: true,
+        updated_at: now, 
+        updatedAt: now 
+      })
       .eq("id", id);
 
     if (updateError) {
