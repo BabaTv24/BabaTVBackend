@@ -311,10 +311,14 @@ admin.post("/verify-2fa", async (c) => {
 });
 
 admin.post("/logout", async (c) => {
+  const ip = c.req.header("x-forwarded-for") || "unknown";
+  secureLog(`ADMIN LOGOUT (POST) from IP=${ip}`);
   return c.json({ success: true, message: "Logged out successfully" });
 });
 
 admin.get("/logout", async (c) => {
+  const ip = c.req.header("x-forwarded-for") || "unknown";
+  secureLog(`ADMIN LOGOUT (GET) from IP=${ip}`);
   return c.json({ success: true, message: "Logged out successfully" });
 });
 
@@ -454,6 +458,8 @@ admin.get("/users", async (c) => {
       meta: userMeta.get(user.id) || { tags: [], isPremium: false }
     }));
 
+    console.log(`[ADMIN] GET /users - returned ${enrichedUsers.length} users (page ${page}, total ${total})`);
+
     return c.json({ 
       success: true,
       users: enrichedUsers,
@@ -464,6 +470,7 @@ admin.get("/users", async (c) => {
       source: "supabase"
     });
   } catch (error) {
+    console.error("[ADMIN] GET /users error:", error.message);
     return c.json({ success: false, error: error.message }, 400);
   }
 });
