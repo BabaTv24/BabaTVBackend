@@ -17,6 +17,7 @@ import smsRoutes from "./routes/sms.js";
 import chatRoutes from "./routes/chat.js";
 import videoRoutes from "./routes/video.js";
 import adminRoutes from "./routes/admin.js";
+import publicRoutes from "./routes/public.js";
 
 dotenv.config();
 
@@ -63,6 +64,7 @@ app.get("/", (c) => {
       chat: "/api/chat",
       video: "/api/video",
       admin: "/api/admin",
+      public: "/api/public",
     },
   });
 });
@@ -80,6 +82,7 @@ app.route("/api/sms", smsRoutes);
 app.route("/api/chat", chatRoutes);
 app.route("/api/video", videoRoutes);
 app.route("/api/admin", adminRoutes);
+app.route("/api/public", publicRoutes);
 
 app.onError((err, c) => {
   console.error("SERVER ERROR:", err);
