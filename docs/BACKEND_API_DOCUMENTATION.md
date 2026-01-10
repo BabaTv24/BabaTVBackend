@@ -215,6 +215,8 @@ Tworzy nowego uzytkownika.
     "role": "user",
     "plan": "VIP",
     "accessStatus": "active",
+    "refCode": "AB3K9MPQR2",
+    "refLink": "https://babatv24.com/?ref=AB3K9MPQR2",
     "createdAt": "2025-01-10T15:00:00.000Z",
     "updatedAt": "2025-01-10T15:00:00.000Z"
   },
@@ -223,7 +225,9 @@ Tworzy nowego uzytkownika.
 }
 ```
 
-> **UWAGA:** Pole `generatedPassword` pojawia sie tylko gdy haslo zostalo wygenerowane automatycznie.
+> **UWAGA:** 
+> - Pole `generatedPassword` pojawia sie tylko gdy haslo zostalo wygenerowane automatycznie.
+> - Pole `refCode` jest generowane automatycznie (10 znakow) jesli nie podano.
 
 **Bledy:**
 | Kod | Opis |
@@ -334,6 +338,51 @@ Usuwa uzytkownika.
 | Kod | Opis |
 |-----|------|
 | 404 | User not found |
+
+---
+
+### POST /api/admin/users/:id/send-invite
+
+Wysyla email z danymi logowania do uzytkownika. Generuje nowe haslo startowe i zapisuje je w bazie.
+
+**URL Parameter:** `id` - UUID uzytkownika
+
+**Request:** Brak body (pusty POST)
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Invitation email sent to jan.kowalski@example.com",
+  "email": "jan.kowalski@example.com"
+}
+```
+
+**Co robi ten endpoint:**
+1. Pobiera dane uzytkownika (email, imie, refCode)
+2. Generuje nowe 14-znakowe haslo startowe
+3. Hashuje haslo i zapisuje w bazie (`password_hash`)
+4. Wysyla email z:
+   - Loginem (email)
+   - Haslem startowym
+   - Linkiem do logowania
+   - Linkiem polecajacym (refLink)
+
+**Wymagane zmienne srodowiskowe:**
+| Zmienna | Opis |
+|---------|------|
+| SMTP_HOST | Host serwera SMTP |
+| SMTP_PORT | Port SMTP (domyslnie 587) |
+| SMTP_USER | Login SMTP |
+| SMTP_PASS | Haslo SMTP |
+| FROM_EMAIL | Adres nadawcy (domyslnie noreply@babatv24.com) |
+| APP_URL | URL aplikacji (domyslnie https://babatv24.com) |
+
+**Bledy:**
+| Kod | Opis |
+|-----|------|
+| 404 | User not found |
+| 500 | Database not configured / SMTP not configured |
 
 ---
 
@@ -470,6 +519,8 @@ interface User {
   role: "user" | "moderator" | "admin";
   plan: string;            // np. "VIP", "Premium", "Basic"
   accessStatus: "active" | "suspended" | "expired";
+  refCode: string | null;  // 10-znakowy kod polecajacy (auto-generowany)
+  refLink: string | null;  // https://babatv24.com/?ref=<refCode>
   expiresAt: string | null; // ISO 8601 date
   createdAt: string;       // ISO 8601 date
   updatedAt: string;       // ISO 8601 date
@@ -575,6 +626,20 @@ const deleteUser = async (token: string, userId: string) => {
 };
 ```
 
+### Wyslanie zaproszenia email
+```typescript
+const sendInvite = async (token: string, userId: string) => {
+  const res = await fetch(`https://babatvbackend.onrender.com/api/admin/users/${userId}/send-invite`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`
+    },
+    credentials: "include"
+  });
+  return res.json();
+};
+```
+
 ---
 
 ## Wazne Uwagi
@@ -589,7 +654,11 @@ const deleteUser = async (token: string, userId: string) => {
 
 5. **Rate Limiting**: Login ma limit prob. Po zbyt wielu blednych probach IP zostanie zablokowane.
 
+6. **refCode i refLink**: Kazdy uzytkownik ma automatycznie generowany 10-znakowy kod polecajacy. Frontend moze wyswietlac `refLink` z przyciskiem "Kopiuj".
+
+7. **send-invite**: Uzywaj do wysylania danych logowania do nowych uzytkownikow. Wymaga konfiguracji SMTP.
+
 ---
 
-**Wersja dokumentacji:** 2.2.0
+**Wersja dokumentacji:** 2.3.0
 **Data aktualizacji:** 2025-01-10

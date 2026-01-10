@@ -64,12 +64,22 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `SUPABASE_KEY` - Supabase anon/service key
 - `JWT_SECRET` - Secret for JWT token signing
 - `PORT` - Server port (default: 5000)
+- `APP_URL` - Frontend URL (default: https://babatv24.com)
+- `SMTP_HOST` - SMTP server host (for email invites)
+- `SMTP_PORT` - SMTP port (default: 587)
+- `SMTP_USER` - SMTP username
+- `SMTP_PASS` - SMTP password
+- `FROM_EMAIL` - Email sender address
 
 ## Dokumentacja
+- `docs/BACKEND_API_DOCUMENTATION.md` - Pelna dokumentacja API v2.3.0 (PL)
 - `docs/ADMIN_DOKUMENTACJA.md` - Pelna dokumentacja dla Administratora (PL)
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-10**: Added POST /api/admin/users/:id/send-invite - wysylka email z danymi logowania
+- **2025-01-10**: Added refCode/refLink - automatyczne generowanie kodow polecajacych
+- **2025-01-10**: Added plan field support with "VIP" default
 - **2025-01**: Full CRUD /api/admin/users - paginacja, walidacja, fallback in-memory
 - **2025-01**: ULTRA-PRO SECURITY - rate limiting, brute force protection, 2FA, security headers
 - **2024-12**: Dodano pelna dokumentacje dla Admina

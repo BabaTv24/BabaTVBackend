@@ -1,11 +1,29 @@
 import { Hono } from "hono";
 import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
+import nodemailer from "nodemailer";
 import { signToken } from "../utils/jwt.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { rateLimiter, bruteForceLimiter, protectReplay, secureLog } from "../middleware/security.js";
 import { userMeta, ads, coupons, testimonials, chats, videoLoop, generateId } from "../utils/dataStore.js";
 import { createClient } from "../utils/supabase.js";
+
+const APP_URL = process.env.APP_URL || "https://babatv24.com";
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@babatv24.com";
+
+const getMailTransporter = () => {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS }
+  });
+};
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "mtvx007@gmail.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -57,6 +75,15 @@ const generateTempPassword = (length = 16) => {
   return password;
 };
 
+const REF_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const generateRefCode = (length = 10) => {
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += REF_CODE_CHARS.charAt(Math.floor(Math.random() * REF_CODE_CHARS.length));
+  }
+  return code;
+};
+
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 const normalizeUserResponse = (user) => {
@@ -83,6 +110,8 @@ const normalizeUserResponse = (user) => {
     plan: user.plan || "VIP",
     accessStatus: user.accessStatus || user.access_status || "active",
     expiresAt: user.expiresAt || user.expires_at || null,
+    refCode: user.refCode || user.ref_code || null,
+    refLink: (user.refCode || user.ref_code) ? `${APP_URL}/?ref=${user.refCode || user.ref_code}` : null,
     createdAt: user.createdAt || user.created_at || null,
     updatedAt: user.updatedAt || user.updated_at || null
   };
@@ -104,6 +133,7 @@ const createSupabasePayload = (data) => {
   const tiktokUrl = data.tiktokUrl || data.tiktok_url || null;
   const twitterUrl = data.twitterUrl || data.twitter_url || null;
   const youtubeUrl = data.youtubeUrl || data.youtube_url || null;
+  const refCode = data.refCode || data.ref_code || generateRefCode(10);
   
   const payload = {
     email: (data.email || "").toLowerCase().trim(),
@@ -135,6 +165,8 @@ const createSupabasePayload = (data) => {
     plan: data.plan || "VIP",
     accessStatus: accessStatus,
     access_status: accessStatus,
+    refCode: refCode,
+    ref_code: refCode,
     password_hash: data.password_hash,
     createdAt: now,
     created_at: now,
@@ -166,6 +198,7 @@ const createSupabasePayload = (data) => {
 
 const createUserObjectForMemory = (data) => {
   const now = new Date().toISOString();
+  const refCode = data.refCode || data.ref_code || generateRefCode(10);
   return {
     id: generateId(),
     email: (data.email || "").toLowerCase().trim(),
@@ -184,7 +217,10 @@ const createUserObjectForMemory = (data) => {
     twitterUrl: data.twitterUrl || null,
     youtubeUrl: data.youtubeUrl || null,
     role: normalizeRole(data.role) || "user",
+    plan: data.plan || "VIP",
     accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
+    refCode: refCode,
+    ref_code: refCode,
     externalId: data.externalId || generateId(),
     createdAt: data.createdAt || now,
     updatedAt: now
@@ -1159,6 +1195,123 @@ admin.get("/activity", async (c) => {
     return c.json({ success: true, activities: activityLog.slice(-limit).reverse() });
   } catch (error) {
     return c.json({ success: false, error: error.message }, 400);
+  }
+});
+
+admin.post("/users/:id/send-invite", async (c) => {
+  const ip = c.req.header("x-forwarded-for") || "unknown";
+  
+  try {
+    const id = c.req.param("id");
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      return c.json({ success: false, error: "Database not configured" }, 500);
+    }
+
+    const { data: user, error: fetchError } = await supabase
+      .from(USERS_TABLE)
+      .select("id, email, firstName, first_name, lastName, last_name, refCode, ref_code")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !user) {
+      return c.json({ success: false, error: "User not found" }, 404);
+    }
+
+    const transporter = getMailTransporter();
+    if (!transporter) {
+      return c.json({ 
+        success: false, 
+        error: "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables." 
+      }, 500);
+    }
+
+    const tempPassword = generateTempPassword(14);
+    const password_hash = await bcrypt.hash(tempPassword, 10);
+
+    const { error: updateError } = await supabase
+      .from(USERS_TABLE)
+      .update({ password_hash, updated_at: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      .eq("id", id);
+
+    if (updateError) {
+      return c.json({ success: false, error: updateError.message }, 500);
+    }
+
+    const userEmail = user.email;
+    const firstName = user.firstName || user.first_name || "";
+    const lastName = user.lastName || user.last_name || "";
+    const refCode = user.refCode || user.ref_code || "";
+    const refLink = refCode ? `${APP_URL}/?ref=${refCode}` : APP_URL;
+
+    const mailOptions = {
+      from: FROM_EMAIL,
+      to: userEmail,
+      subject: "BabaTV24 - Twoje dane logowania",
+      text: `Witaj ${firstName} ${lastName}!
+
+Twoje konto BabaTV24 jest aktywne.
+
+===== DANE LOGOWANIA =====
+Login: ${userEmail}
+Haslo startowe: ${tempPassword}
+Logowanie: ${APP_URL}/login
+
+===== TWOJ LINK POLECAJACY =====
+${refLink}
+
+Udostepnij ten link znajomym i zarabiaj prowizje!
+
+Po pierwszym logowaniu zalecamy zmiane hasla.
+
+Pozdrawiamy,
+Zespol BabaTV24`,
+      html: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #2563eb;">Witaj ${firstName} ${lastName}!</h2>
+    <p>Twoje konto <strong>BabaTV24</strong> jest aktywne.</p>
+    
+    <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <h3 style="margin-top: 0; color: #1f2937;">Dane logowania</h3>
+      <p><strong>Login:</strong> ${userEmail}</p>
+      <p><strong>Haslo startowe:</strong> <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px;">${tempPassword}</code></p>
+      <p><a href="${APP_URL}/login" style="display: inline-block; background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; margin-top: 10px;">Zaloguj sie</a></p>
+    </div>
+    
+    <div style="background: #ecfdf5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <h3 style="margin-top: 0; color: #065f46;">Twoj link polecajacy</h3>
+      <p style="word-break: break-all;"><a href="${refLink}" style="color: #059669;">${refLink}</a></p>
+      <p style="font-size: 14px; color: #6b7280;">Udostepnij ten link znajomym i zarabiaj prowizje!</p>
+    </div>
+    
+    <p style="font-size: 14px; color: #6b7280;">Po pierwszym logowaniu zalecamy zmiane hasla.</p>
+    
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+    <p style="font-size: 12px; color: #9ca3af;">Pozdrawiamy,<br>Zespol BabaTV24</p>
+  </div>
+</body>
+</html>`
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    secureLog(`INVITE SENT to ${userEmail} from IP=${ip}`);
+    console.log(`[ADMIN] Invite email sent to ${userEmail}`);
+
+    return c.json({ 
+      success: true, 
+      message: `Invitation email sent to ${userEmail}`,
+      email: userEmail
+    });
+
+  } catch (error) {
+    console.error("[ADMIN] send-invite error:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
   }
 });
 

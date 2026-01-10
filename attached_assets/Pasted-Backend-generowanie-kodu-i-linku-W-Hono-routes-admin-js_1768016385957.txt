@@ -1,0 +1,156 @@
+Backend: generowanie kodu i linku
+
+W Hono (routes/admin.js albo routes/users.js – zależnie gdzie masz POST /api/admin/users z dokumentacji 
+
+BACKEND_API_DOCUMENTATION
+
+) dodaj:
+
+jeśli ref_code puste → wygeneruj (np. 10 znaków)
+
+zapisuj w DB
+
+zwracaj do frontu refLink = https://babatv24.com/?ref=<ref_code>
+
+To pozwoli adminowi od razu widzieć reflink w panelu.
+
+2) Hasło do pierwszego logowania: są 2 opcje
+Opcja A (najszybsza, już prawie masz): backend zwraca generatedPassword, a frontend pokazuje adminowi
+
+W dokumentacji POST /api/admin/users jest przewidziane generatedPassword gdy hasło nie zostało podane 
+
+BACKEND_API_DOCUMENTATION
+
+.
+
+Co brakuje: w admin panelu po dodaniu usera pokaż:
+
+Email
+
+generatedPassword (tylko raz)
+
+refLink + przycisk kopiowania
+
+To daje Ci od razu test z telefonu (admin kopiuje hasło i wysyła np. SMS/Telegram).
+Ale Ty chcesz „profesjonalnie”: mail.
+
+Opcja B (docelowa): Admin klika “Wyślij dane logowania” → user dostaje email
+
+Dodaj endpoint:
+
+POST /api/admin/users/:id/send-invite
+
+Co robi:
+
+generuje nowe hasło startowe (lub bierze istniejące, jeśli wolisz)
+
+zapisuje password_hash = bcrypt(haslo) w DB
+
+wysyła maila do usera z:
+
+login URL: https://babatv24.com/login
+
+hasło startowe
+
+reflink
+
+To jest dokładnie to, czego potrzebujesz do testów.
+
+3) Minimalna implementacja “send-invite” (Hono + nodemailer)
+ENV na Render/Replit
+
+Dodaj w Render → Environment:
+
+SMTP_HOST
+
+SMTP_PORT
+
+SMTP_USER
+
+SMTP_PASS
+
+FROM_EMAIL
+
+APP_URL = https://babatv24.com
+
+Kod (szkielet)
+// routes/admin.js (Hono ESM)
+import { Hono } from "hono";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
+import { createClient } from "../utils/supabase.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+
+const admin = new Hono();
+const supabase = createClient();
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: false,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+});
+
+function makeTempPassword() {
+  return crypto.randomBytes(9).toString("base64url"); // ~12 znaków
+}
+
+admin.post("/users/:id/send-invite", authMiddleware, async (c) => {
+  const id = c.req.param("id");
+
+  // 1) pobierz usera (email + ref_code)
+  const { data: user, error: e1 } = await supabase
+    .from("users")
+    .select("id,email,ref_code")
+    .eq("id", id)
+    .single();
+
+  if (e1 || !user) return c.json({ success: false, error: "User not found" }, 404);
+
+  // 2) wygeneruj hasło i zahashuj
+  const tempPassword = makeTempPassword();
+  const password_hash = await bcrypt.hash(tempPassword, 12);
+
+  // 3) zapisz hash (i ewentualnie flagę wymuszenia zmiany hasła, jeśli dodasz kolumnę)
+  const { error: e2 } = await supabase
+    .from("users")
+    .update({ password_hash })
+    .eq("id", id);
+
+  if (e2) return c.json({ success: false, error: e2.message }, 500);
+
+  // 4) wyślij mail
+  const appUrl = process.env.APP_URL || "https://babatv24.com";
+  const refLink = user.ref_code ? `${appUrl}/?ref=${user.ref_code}` : `${appUrl}/`;
+
+  await transporter.sendMail({
+    from: process.env.FROM_EMAIL,
+    to: user.email,
+    subject: "BabaTV24 — dane logowania",
+    text:
+`Witaj!
+
+Twoje konto BabaTV24 jest aktywne.
+
+Login: ${user.email}
+Hasło startowe: ${tempPassword}
+Logowanie: ${appUrl}/login
+
+Twój link polecający:
+${refLink}
+
+Po pierwszym logowaniu zmień hasło.`,
+  });
+
+  return c.json({ success: true });
+});
+
+export default admin;
+
+
+Efekt: admin ma przycisk “Wyślij dane logowania”, user dostaje mail, możesz testować z telefonu od razu.
+
+4) Dodatkowa rzecz, którą warto zrobić (żeby było “enterprise”, nie “bazar”)
+
+Dodaj w users flagę must_change_password boolean default true i po pierwszym logowaniu wymuszaj zmianę hasła. To nie jest obowiązkowe do startu, ale mocno poprawia bezpieczeństwo.
