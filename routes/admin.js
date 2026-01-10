@@ -1207,33 +1207,44 @@ admin.post("/users/:id/send-invite", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
   
   try {
-    const id = c.req.param("id");
+    const userId = c.req.param("id");
     const supabase = getSupabaseClient();
 
     if (!supabase) {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
-    const { data: user, error: fetchError } = await supabase
+    let query = supabase
       .from(USERS_TABLE)
-      .select("id, email, firstName, first_name, lastName, last_name, refCode, ref_code")
-      .eq("id", id)
-      .single();
+      .select("id, email, public_id, external_id, firstName, first_name, lastName, last_name, refCode, ref_code")
+      .limit(1);
+
+    if (userId.includes("-")) {
+      query = query.eq("id", userId);
+    } else {
+      const pid = Number(userId);
+      if (!Number.isFinite(pid)) {
+        return c.json({ success: false, error: "Invalid userId" }, 400);
+      }
+      query = query.eq("public_id", pid);
+    }
+
+    const { data: user, error: fetchError } = await query.maybeSingle();
 
     if (fetchError || !user) {
       return c.json({ success: false, error: "User not found" }, 404);
     }
 
-    const transporter = getMailTransporter();
-    if (!transporter) {
-      return c.json({ 
-        success: false, 
-        error: "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables." 
-      }, 500);
-    }
-
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
+
+    let refCode = user.refCode || user.ref_code || user.external_id;
+    if (!refCode) {
+      const publicId = user.public_id ?? Math.floor(Math.random() * 1e9);
+      const base = publicId.toString(36).toUpperCase();
+      refCode = `BABA-${base}`;
+    }
+    const refLink = `${APP_URL}/?ref=${encodeURIComponent(refCode)}`;
 
     const now = new Date().toISOString();
     const { error: updateError } = await supabase
@@ -1242,83 +1253,103 @@ admin.post("/users/:id/send-invite", async (c) => {
         password_hash, 
         must_change_password: true, 
         mustChangePassword: true,
+        access_status: "active",
+        accessStatus: "active",
+        external_id: refCode,
+        ref_code: refCode,
+        refCode: refCode,
         updated_at: now, 
         updatedAt: now 
       })
-      .eq("id", id);
+      .eq("id", user.id);
 
     if (updateError) {
-      return c.json({ success: false, error: updateError.message }, 500);
+      return c.json({ success: false, error: "DB update failed", details: updateError.message }, 500);
     }
 
     const userEmail = user.email;
     const firstName = user.firstName || user.first_name || "";
     const lastName = user.lastName || user.last_name || "";
-    const refCode = user.refCode || user.ref_code || "";
-    const refLink = refCode ? `${APP_URL}/?ref=${refCode}` : APP_URL;
+    const displayName = `${firstName} ${lastName}`.trim() || "Użytkowniku";
 
-    const mailOptions = {
-      from: FROM_EMAIL,
-      to: userEmail,
-      subject: "BabaTV24 - Twoje dane logowania",
-      text: `Witaj ${firstName} ${lastName}!
+    const transporter = getMailTransporter();
+    let emailSent = false;
 
-Twoje konto BabaTV24 jest aktywne.
+    if (transporter) {
+      const mailOptions = {
+        from: FROM_EMAIL,
+        to: userEmail,
+        subject: "BabaTV24 - Twoje dane logowania + link polecający",
+        text: `Cześć ${displayName},
+
+Twoje konto BabaTV24 zostało aktywowane.
 
 ===== DANE LOGOWANIA =====
 Login: ${userEmail}
-Haslo startowe: ${tempPassword}
-Logowanie: ${APP_URL}/login
+Hasło startowe: ${tempPassword}
+Zaloguj się tutaj: ${APP_URL}/login
 
-===== TWOJ LINK POLECAJACY =====
+===== TWÓJ LINK POLECAJĄCY =====
 ${refLink}
 
-Udostepnij ten link znajomym i zarabiaj prowizje!
+Udostępnij ten link znajomym i zarabiaj prowizje!
 
-Po pierwszym logowaniu zalecamy zmiane hasla.
+Po zalogowaniu zmień hasło.
 
 Pozdrawiamy,
-Zespol BabaTV24`,
-      html: `
+BabaTV24`,
+        html: `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
   <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2 style="color: #2563eb;">Witaj ${firstName} ${lastName}!</h2>
-    <p>Twoje konto <strong>BabaTV24</strong> jest aktywne.</p>
+    <h2 style="color: #2563eb;">Cześć ${displayName}!</h2>
+    <p>Twoje konto <strong>BabaTV24</strong> zostało aktywowane.</p>
     
     <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
       <h3 style="margin-top: 0; color: #1f2937;">Dane logowania</h3>
       <p><strong>Login:</strong> ${userEmail}</p>
-      <p><strong>Haslo startowe:</strong> <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px;">${tempPassword}</code></p>
-      <p><a href="${APP_URL}/login" style="display: inline-block; background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; margin-top: 10px;">Zaloguj sie</a></p>
+      <p><strong>Hasło startowe:</strong> <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px;">${tempPassword}</code></p>
+      <p><a href="${APP_URL}/login" style="display: inline-block; background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; margin-top: 10px;">Zaloguj się</a></p>
     </div>
     
     <div style="background: #ecfdf5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-      <h3 style="margin-top: 0; color: #065f46;">Twoj link polecajacy</h3>
+      <h3 style="margin-top: 0; color: #065f46;">Twój link polecający</h3>
       <p style="word-break: break-all;"><a href="${refLink}" style="color: #059669;">${refLink}</a></p>
-      <p style="font-size: 14px; color: #6b7280;">Udostepnij ten link znajomym i zarabiaj prowizje!</p>
+      <p style="font-size: 14px; color: #6b7280;">Udostępnij ten link znajomym i zarabiaj prowizje!</p>
     </div>
     
-    <p style="font-size: 14px; color: #6b7280;">Po pierwszym logowaniu zalecamy zmiane hasla.</p>
+    <p style="font-size: 14px; color: #6b7280; background: #fef3c7; padding: 10px; border-radius: 6px;">⚠️ Po zalogowaniu zmień hasło w ustawieniach konta.</p>
     
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-    <p style="font-size: 12px; color: #9ca3af;">Pozdrawiamy,<br>Zespol BabaTV24</p>
+    <p style="font-size: 12px; color: #9ca3af;">Pozdrawiamy,<br>BabaTV24</p>
   </div>
 </body>
 </html>`
-    };
+      };
 
-    await transporter.sendMail(mailOptions);
-
-    secureLog(`INVITE SENT to ${userEmail} from IP=${ip}`);
-    console.log(`[ADMIN] Invite email sent to ${userEmail}`);
+      try {
+        await transporter.sendMail(mailOptions);
+        emailSent = true;
+        secureLog(`INVITE SENT to ${userEmail} from IP=${ip}`);
+        console.log(`[ADMIN] Invite email sent to ${userEmail}`);
+      } catch (mailError) {
+        console.warn(`[ADMIN] Email send failed: ${mailError.message}`);
+      }
+    } else {
+      console.warn("[ADMIN] SMTP not configured – returning password to admin");
+    }
 
     return c.json({ 
       success: true, 
-      message: `Invitation email sent to ${userEmail}`,
-      email: userEmail
+      message: emailSent ? "Invite sent" : "Invite generated (email not configured)",
+      userId: user.id,
+      email: userEmail,
+      refCode,
+      refLink,
+      generatedPassword: emailSent ? undefined : tempPassword,
+      emailSent
     });
 
   } catch (error) {

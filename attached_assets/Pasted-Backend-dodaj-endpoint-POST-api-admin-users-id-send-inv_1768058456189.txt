@@ -1,0 +1,157 @@
+Backend: dodaj endpoint POST /api/admin/users/:id/send-invite
+
+Cel: admin klika kopertę → backend:
+
+znajduje usera po id (UUID) albo po publicId (gdybyś kiedyś wysłał liczbę),
+
+generuje hasło tymczasowe,
+
+zapisuje password_hash,
+
+generuje reflink/refCode (u Ciebie możesz to trzymać w external_id, bo ta kolumna już istnieje),
+
+wysyła maila (albo, jeśli SMTP nie ustawione, zwraca hasło do wyświetlenia adminowi).
+
+Kod (Hono / Node ESM) – route w routes/admin.js (albo tam gdzie masz admin routes)
+import { Hono } from "hono";
+import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
+import { supabase } from "../utils/supabase.js";
+import { requireAdmin } from "../middleware/authMiddleware.js";
+import { sendMail } from "../utils/mailer.js";
+
+const admin = new Hono();
+
+// helpery
+const genPassword = (len = 14) =>
+  randomBytes(32).toString("base64url").slice(0, len);
+
+const genRefCode = (publicId) => {
+  // prosty, deterministyczny kod; możesz go później “upiększyć”
+  const base = (publicId ?? Math.floor(Math.random() * 1e9)).toString(36).toUpperCase();
+  return `BABA-${base}`;
+};
+
+admin.post("/users/:userId/send-invite", requireAdmin, async (c) => {
+  const userId = c.req.param("userId");
+
+  // 1) znajdź usera (UUID albo publicId)
+  let query = supabase
+    .from("users")
+    .select("id, email, public_id, external_id, firstName, lastName, first_name, last_name")
+    .limit(1);
+
+  if (userId.includes("-")) {
+    query = query.eq("id", userId);
+  } else {
+    const pid = Number(userId);
+    if (!Number.isFinite(pid)) {
+      return c.json({ success: false, error: "Invalid userId" }, 400);
+    }
+    query = query.eq("public_id", pid);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) {
+    return c.json({ success: false, error: "User not found" }, 404);
+  }
+
+  // 2) hasło tymczasowe + hash
+  const tempPassword = genPassword(14);
+  const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+  // 3) refCode (użyj external_id jako refCode)
+  const publicId = data.public_id ?? null;
+  const refCode = data.external_id || genRefCode(publicId);
+
+  // 4) update w DB
+  const { error: upErr } = await supabase
+    .from("users")
+    .update({
+      password_hash: passwordHash,
+      external_id: refCode,
+      access_status: "active",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.id);
+
+  if (upErr) {
+    return c.json({ success: false, error: "DB update failed", details: upErr.message }, 500);
+  }
+
+  // 5) mail
+  const loginUrl = `https://www.babatv24.com/login`;
+  const refLink = `https://www.babatv24.com/?ref=${encodeURIComponent(refCode)}`;
+
+  const firstName = data.firstName ?? data.first_name ?? "";
+  const lastName = data.lastName ?? data.last_name ?? "";
+  const displayName = `${firstName} ${lastName}`.trim() || "Użytkowniku";
+
+  const subject = "BabaTV24 – Twoje dane logowania + link polecający";
+  const text = [
+    `Cześć ${displayName},`,
+    ``,
+    `Twoje konto w BabaTV24 zostało aktywowane.`,
+    `Login: ${data.email}`,
+    `Hasło startowe: ${tempPassword}`,
+    ``,
+    `Zaloguj się tutaj: ${loginUrl}`,
+    `Twój link polecający: ${refLink}`,
+    ``,
+    `Po zalogowaniu zmień hasło.`,
+    `Pozdrawiamy,`,
+    `BabaTV24`,
+  ].join("\n");
+
+  const emailSent = await sendMail({
+    to: data.email,
+    subject,
+    text,
+  });
+
+  // jeżeli mail nie wyszedł – zwróć hasło adminowi, żeby mógł skopiować
+  return c.json({
+    success: true,
+    message: emailSent ? "Invite sent" : "Invite generated (email not configured)",
+    userId: data.id,
+    email: data.email,
+    refCode,
+    refLink,
+    generatedPassword: emailSent ? undefined : tempPassword,
+    emailSent,
+  });
+});
+
+export default admin;
+
+utils/mailer.js (Nodemailer)
+import nodemailer from "nodemailer";
+
+export const sendMail = async ({ to, subject, text, html }) => {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !SMTP_FROM) {
+    console.warn("[mailer] SMTP not configured – skipping email send.");
+    return false;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT),
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+
+  await transporter.sendMail({
+    from: SMTP_FROM,
+    to,
+    subject,
+    text,
+    ...(html ? { html } : {}),
+  });
+
+  return true;
+};
+
+
+Ważne: po wdrożeniu, ten endpoint musi być podpięty pod /api/admin razem z resztą routów.
