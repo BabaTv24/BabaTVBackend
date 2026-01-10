@@ -80,6 +80,7 @@ const normalizeUserResponse = (user) => {
     twitterUrl: user.twitterUrl || user.twitter_url || null,
     youtubeUrl: user.youtubeUrl || user.youtube_url || null,
     role: user.role || "user",
+    plan: user.plan || "VIP",
     accessStatus: user.accessStatus || user.access_status || "active",
     expiresAt: user.expiresAt || user.expires_at || null,
     createdAt: user.createdAt || user.created_at || null,
@@ -131,6 +132,7 @@ const createSupabasePayload = (data) => {
     youtubeUrl: youtubeUrl,
     youtube_url: youtubeUrl,
     role: normalizeRole(data.role) || "user",
+    plan: data.plan || "VIP",
     accessStatus: accessStatus,
     access_status: accessStatus,
     password_hash: data.password_hash,
@@ -738,6 +740,7 @@ admin.put("/users/:id", async (c) => {
     if (twitterUrl !== undefined) { updatePayload.twitterUrl = twitterUrl; updatePayload.twitter_url = twitterUrl; }
     if (youtubeUrl !== undefined) { updatePayload.youtubeUrl = youtubeUrl; updatePayload.youtube_url = youtubeUrl; }
     if (body.role) updatePayload.role = normalizeRole(body.role);
+    if (body.plan !== undefined) updatePayload.plan = body.plan;
     if (accessStatus !== undefined) { updatePayload.accessStatus = accessStatus; updatePayload.access_status = accessStatus; }
 
     if (IS_DEV) {
@@ -829,6 +832,7 @@ const handleUserUpdate = async (c) => {
     if (body.postalCode !== undefined) { updatePayload.postalCode = body.postalCode; updatePayload.postal_code = body.postalCode; }
     if (body.bankAccount !== undefined) { updatePayload.bankAccount = body.bankAccount; updatePayload.bank_account = body.bankAccount; }
     if (body.role) updatePayload.role = normalizeRole(body.role);
+    if (body.plan !== undefined) updatePayload.plan = body.plan;
     if (accessStatus !== undefined) { updatePayload.accessStatus = accessStatus; updatePayload.access_status = accessStatus; }
 
     const { data, error } = await supabase
