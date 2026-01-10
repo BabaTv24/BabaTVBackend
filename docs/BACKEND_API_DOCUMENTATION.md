@@ -1,4 +1,4 @@
-# BabaTV24 Backend API - Dokumentacja v2.2.0
+# BabaTV24 Backend API - Dokumentacja v2.3.0
 
 **Base URL:** `https://babatvbackend.onrender.com`
 
@@ -345,28 +345,51 @@ Usuwa uzytkownika.
 
 Wysyla email z danymi logowania do uzytkownika. Generuje nowe haslo startowe i zapisuje je w bazie.
 
-**URL Parameter:** `id` - UUID uzytkownika
+**URL Parameter:** `id` - UUID uzytkownika LUB publicId (liczba)
 
 **Request:** Brak body (pusty POST)
 
-**Response:**
+**Response (email wyslany):**
 ```json
 {
   "success": true,
-  "message": "Invitation email sent to jan.kowalski@example.com",
-  "email": "jan.kowalski@example.com"
+  "message": "Invite sent",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "jan.kowalski@example.com",
+  "refCode": "BABA-1A2B3C",
+  "refLink": "https://babatv24.com/?ref=BABA-1A2B3C",
+  "emailSent": true
+}
+```
+
+**Response (SMTP nie skonfigurowane - haslo zwracane adminowi):**
+```json
+{
+  "success": true,
+  "message": "Invite generated (email not configured)",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "jan.kowalski@example.com",
+  "refCode": "BABA-1A2B3C",
+  "refLink": "https://babatv24.com/?ref=BABA-1A2B3C",
+  "generatedPassword": "Ab3kM9pQr2xYz5",
+  "emailSent": false
 }
 ```
 
 **Co robi ten endpoint:**
-1. Pobiera dane uzytkownika (email, imie, refCode)
+1. Pobiera dane uzytkownika po UUID lub publicId
 2. Generuje nowe 14-znakowe haslo startowe
 3. Hashuje haslo i zapisuje w bazie (`password_hash`)
-4. Wysyla email z:
+4. Ustawia `must_change_password = true`
+5. Ustawia `access_status = "active"`
+6. Generuje refCode jesli brak (format: `BABA-XXXXXX`)
+7. Wysyla email z:
    - Loginem (email)
    - Haslem startowym
    - Linkiem do logowania
    - Linkiem polecajacym (refLink)
+   - Przypomnieniem o zmianie hasla
+8. Jesli SMTP nie skonfigurowane - zwraca haslo adminowi
 
 **Wymagane zmienne srodowiskowe:**
 | Zmienna | Opis |
@@ -381,8 +404,9 @@ Wysyla email z danymi logowania do uzytkownika. Generuje nowe haslo startowe i z
 **Bledy:**
 | Kod | Opis |
 |-----|------|
+| 400 | Invalid userId |
 | 404 | User not found |
-| 500 | Database not configured / SMTP not configured |
+| 500 | Database not configured / DB update failed |
 
 ---
 
@@ -457,7 +481,7 @@ Status API.
 {
   "status": "OK",
   "message": "BabaTV24 Backend ULTRA-PRO SECURITY",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "frontend": "https://www.babatv24.com",
   "environment": "production",
   "endpoints": {
@@ -519,8 +543,9 @@ interface User {
   role: "user" | "moderator" | "admin";
   plan: string;            // np. "VIP", "Premium", "Basic"
   accessStatus: "active" | "suspended" | "expired";
-  refCode: string | null;  // 10-znakowy kod polecajacy (auto-generowany)
+  refCode: string | null;  // kod polecajacy (auto-generowany, np. BABA-1A2B3C)
   refLink: string | null;  // https://babatv24.com/?ref=<refCode>
+  mustChangePassword: boolean; // true = uzytkownik musi zmienic haslo po logowaniu
   expiresAt: string | null; // ISO 8601 date
   createdAt: string;       // ISO 8601 date
   updatedAt: string;       // ISO 8601 date

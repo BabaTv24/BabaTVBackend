@@ -1,0 +1,84 @@
+Backend: dodaj brakujący endpoint dla koperty (to jest powód 404)
+
+W BabaTVBackend musisz dodać trasę dokładnie taką, jak woła frontend:
+
+POST /api/admin/users/:id/send-invite
+
+Logika minimalna:
+
+znajdź usera po id (UUID),
+
+wygeneruj tymczasowe hasło albo link z tokenem,
+
+zapisz hash hasła (albo token do tabeli user_invites),
+
+wyślij maila.
+
+Poniżej “szkielet”, który działa w prawie każdym Express+pg:
+
+// routes/admin.js (albo gdzie masz admin router)
+const express = require("express");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const router = express.Router();
+
+// TODO: twoje auth middleware (admin/moderator)
+const { requireAdmin } = require("../middleware/auth");
+
+// TODO: twoje DB (pg Pool albo inny klient)
+const { pool } = require("../db");
+
+// TODO: mailer (nodemailer / resend / sendgrid)
+// na start możesz zrobić "DEV_MODE" i zwracać temp hasło w odpowiedzi
+
+router.post("/users/:id/send-invite", requireAdmin, async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const userQ = await pool.query(
+      `select id, email, public_id, referral_code
+       from public.users
+       where id = $1
+       limit 1`,
+      [userId]
+    );
+
+    if (userQ.rowCount === 0) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    const user = userQ.rows[0];
+
+    // 1) token zaproszenia
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24h
+
+    await pool.query(
+      `insert into public.user_invites (user_id, token, expires_at)
+       values ($1, $2, $3)`,
+      [user.id, token, expiresAt]
+    );
+
+    // 2) link do aktywacji (frontend musi obsłużyć /activate)
+    const activateUrl = `https://www.babatv24.com/activate?token=${token}`;
+
+    // 3) wyślij maila
+    // await sendMail({
+    //   to: user.email,
+    //   subject: "BabaTV24 — aktywacja konta",
+    //   html: `Kliknij aby aktywować konto: <a href="${activateUrl}">${activateUrl}</a>`
+    // });
+
+    // NA START (żebyś mógł testować) zwróć link w response:
+    return res.json({
+      success: true,
+      message: "Invite created",
+      dev_activate_url: activateUrl
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+module.exports = router;

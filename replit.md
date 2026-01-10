@@ -77,6 +77,8 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-10**: IMPROVED send-invite - obsługa UUID i publicId, fallback hasła gdy brak SMTP
+- **2025-01-10**: Added mustChangePassword field - wymusza zmiane hasla po pierwszym logowaniu
 - **2025-01-10**: Added POST /api/admin/users/:id/send-invite - wysylka email z danymi logowania
 - **2025-01-10**: Added refCode/refLink - automatyczne generowanie kodow polecajacych
 - **2025-01-10**: Added plan field support with "VIP" default
@@ -87,6 +89,23 @@ Server runs on `PORT` environment variable or `5000` by default.
 - **2024**: Implemented in-memory data storage for Render FREE tier compatibility
 - **2024**: Added deep-link push notification support for ads
 - **2024**: Added error handling and 404 middleware
+
+## Status Projektu (2025-01-10)
+
+### Ukonczone (100%)
+- Full CRUD uzytkownikow (GET/POST/PUT/DELETE)
+- Paginacja, filtry, wyszukiwanie
+- Auto-generowanie refCode i refLink
+- Endpoint send-invite z SMTP fallback
+- mustChangePassword flag
+- Dual-write camelCase/snake_case
+- ULTRA-PRO Security (2FA, rate limiting, brute force protection)
+- Dokumentacja API v2.3.0
+
+### Wymagane do produkcji
+- Skonfiguruj zmienne SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS, FROM_EMAIL)
+- Skonfiguruj Supabase (SUPABASE_URL, SUPABASE_KEY)
+- Ustaw JWT_SECRET
 
 ## User Preferences
 - Uses Hono framework (Express-like API)
