@@ -1,0 +1,75 @@
+You are working in the existing repository "BabaTVBackend" (Node.js/Express + Supabase).
+Goal: finalize production-grade synchronization with the Admin Panel + FanPage.
+
+CRITICAL CONTEXT
+- Supabase table: public.users contains BOTH identifiers:
+  - uuid column: id (uuid)
+  - numeric identity: public_id (bigint)
+- Admin UI shows public_id as "ID" (370/371), but action endpoints often use uuid id.
+- Current bug: POST /api/admin/users/:id/send-invite returns 404 {"success":false,"error":"User not found"} when :id is a UUID.
+- Current bug: logout shows “Wylogowano” but session is not truly invalidated; Front remains in admin panel.
+- Frontend also needs a reliable stats endpoint for user counter (“Dołączyło już”) based on max(public_id) and count(*).
+
+TASKS (Backend)
+A) Fix "send-invite" to support UUID and public_id (dual identifier)
+- Endpoint must be: POST /api/admin/users/:id/send-invite
+- If :id matches UUID -> lookup user by users.id
+- Else if numeric -> lookup by users.public_id
+- If not found -> 404 with clear body
+- If found:
+  - Ensure user has refCode/refLink; if missing generate and persist.
+  - Ensure mustChangePassword flag is set true (for invited accounts).
+  - If SMTP env configured: send email invite (generated password or reset link).
+  - If SMTP not configured: return generatedPassword to admin in response (fallback).
+- Response must include: { success, emailSent, generatedPassword?, refCode, refLink, user: { id, public_id, email } }
+
+B) Implement proper logout endpoint
+- Add POST /api/admin/logout
+- If auth uses cookies -> clear cookie(s) (set expired).
+- If auth uses JWT in headers only -> still return success, but include recommended frontend behavior in response.
+- Always return { success: true } (200) and do not 404.
+
+C) Add Admin Stats endpoint (for counters)
+- Add GET /api/admin/stats
+- Return:
+  - usersCount = count(*) from public.users
+  - maxPublicId = max(public_id)
+  - activeUsersCount (optional if you can compute)
+- Make this fast and cacheable for ~30s (in-memory).
+
+D) Add endpoints for user list refresh + push audience
+- Ensure GET /api/admin/users supports pagination/filter/search AND returns both:
+  - id (uuid), public_id, email, role, plan, accessStatus, createdAt, refCode, refLink
+- Add GET /api/admin/users/audience (optional convenience) returning compact list for PUSH module.
+
+E) Push sending for selected users or all
+- Add POST /api/admin/push/send with body:
+  {
+    title: string,
+    message: string,
+    target: "all" | "selected" | "filter",
+    userIds?: string[] (uuid) or publicIds?: number[],
+    filter?: { plan?: string[], role?: string[], accessStatus?: string[] }
+  }
+- For now, if real push provider not configured, store push jobs in DB table (or log) and return success.
+- Response: { success: true, targetedUsers: number }
+
+F) Robustness & compatibility
+- Keep existing endpoints unchanged where possible.
+- Add helper: resolveUserIdentifier(param) -> { by: "uuid"|"public_id", value }
+- Add tests or at least minimal integration checks using curl examples in docs.
+
+DELIVERABLES
+1) Code changes implementing A-F.
+2) Update docs in docs/BACKEND_API_DOCUMENTATION.md with:
+   - /api/admin/logout
+   - /api/admin/stats
+   - /api/admin/push/send
+   - send-invite now accepts UUID or public_id
+3) Ensure Render production works (env vars read from process.env, no reliance on .env in production).
+
+ACCEPTANCE CHECKS
+- POST /api/admin/users/<UUID>/send-invite returns 200 and emailSent or generatedPassword.
+- POST /api/admin/users/<public_id>/send-invite also works.
+- POST /api/admin/logout returns 200 and clears cookie if used.
+- GET /api/admin/stats returns maxPublicId matching Supabase max(public_id).

@@ -87,6 +87,23 @@ const generateRefCode = (length = 10) => {
 
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
+const UUID_REGEX = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+
+const resolveUserIdentifier = (param) => {
+  if (!param || typeof param !== "string") {
+    return { by: null, value: null };
+  }
+  const trimmed = param.trim();
+  if (UUID_REGEX.test(trimmed)) {
+    return { by: "uuid", value: trimmed };
+  }
+  const num = Number(trimmed);
+  if (Number.isFinite(num) && num > 0 && Number.isInteger(num)) {
+    return { by: "public_id", value: num };
+  }
+  return { by: null, value: null };
+};
+
 const normalizeUserResponse = (user) => {
   if (!user) return user;
   return {
@@ -354,27 +371,62 @@ admin.post("/verify-2fa", async (c) => {
   }
 });
 
+const clearAuthCookies = (c) => {
+  const expiredDate = "Thu, 01 Jan 1970 00:00:00 GMT";
+  const cookies = [
+    `admin_token=; Path=/; Expires=${expiredDate}; HttpOnly; SameSite=Strict`,
+    `session=; Path=/; Expires=${expiredDate}; HttpOnly; SameSite=Strict`,
+    `auth_token=; Path=/; Expires=${expiredDate}; HttpOnly; SameSite=Strict`
+  ];
+  c.res.headers.append("Set-Cookie", cookies[0]);
+  c.res.headers.append("Set-Cookie", cookies[1]);
+  c.res.headers.append("Set-Cookie", cookies[2]);
+};
+
 admin.post("/logout", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
   console.info(`[ADMIN] POST /api/admin/logout from IP=${ip}`);
   secureLog(`ADMIN LOGOUT (POST) from IP=${ip}`);
-  return c.json({ success: true, message: "Logged out successfully" });
+  
+  clearAuthCookies(c);
+  
+  return c.json({ 
+    success: true, 
+    message: "Logged out successfully",
+    frontendAction: "clear_local_storage"
+  });
 });
 
 admin.get("/logout", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
   console.info(`[ADMIN] GET /api/admin/logout from IP=${ip}`);
   secureLog(`ADMIN LOGOUT (GET) from IP=${ip}`);
-  return c.json({ success: true, message: "Logged out successfully" });
+  
+  clearAuthCookies(c);
+  
+  return c.json({ 
+    success: true, 
+    message: "Logged out successfully",
+    frontendAction: "clear_local_storage"
+  });
 });
 
 admin.use("/*", authMiddleware);
 
+let statsCache = { data: null, timestamp: 0 };
+const STATS_CACHE_TTL = 30000;
+
 admin.get("/stats", async (c) => {
   try {
+    const now = Date.now();
+    if (statsCache.data && (now - statsCache.timestamp) < STATS_CACHE_TTL) {
+      return c.json({ success: true, stats: statsCache.data });
+    }
+
     const supabase = getSupabaseClient();
     let usersTotal = 0;
     let activeUsers = 0;
+    let maxPublicId = 0;
 
     if (supabase) {
       const { count: totalCount } = await supabase
@@ -386,28 +438,33 @@ admin.get("/stats", async (c) => {
         .select("*", { count: "exact", head: true })
         .or("accessStatus.eq.active,access_status.eq.active");
 
+      const { data: maxRow } = await supabase
+        .from(USERS_TABLE)
+        .select("public_id")
+        .order("public_id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       usersTotal = totalCount || 0;
       activeUsers = activeCount || 0;
+      maxPublicId = maxRow?.public_id || 0;
     } else {
       usersTotal = usersInMemory.size;
       activeUsers = Array.from(usersInMemory.values()).filter(u => 
         (u.accessStatus || u.access_status) === "active"
       ).length;
+      maxPublicId = Math.max(0, ...Array.from(usersInMemory.values()).map(u => u.public_id || u.publicId || 0));
     }
 
-    return c.json({
-      success: true,
-      stats: {
-        usersTotal,
-        activeUsers,
-        revenue: 0
-      }
-    });
+    const stats = { usersTotal, activeUsers, maxPublicId, revenue: 0 };
+    statsCache = { data: stats, timestamp: now };
+
+    return c.json({ success: true, stats });
   } catch (error) {
     console.error("[ADMIN] GET /stats error:", error.message);
     return c.json({
       success: true,
-      stats: { usersTotal: 0, activeUsers: 0, revenue: 0 }
+      stats: { usersTotal: 0, activeUsers: 0, maxPublicId: 0, revenue: 0 }
     });
   }
 });
@@ -1218,19 +1275,20 @@ admin.post("/users/:id/send-invite", async (c) => {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
+    const identifier = resolveUserIdentifier(userId);
+    if (!identifier.by) {
+      return c.json({ success: false, error: "Invalid userId format" }, 400);
+    }
+
     let query = supabase
       .from(USERS_TABLE)
       .select("id, email, public_id, external_id, firstName, first_name, lastName, last_name, refCode, ref_code")
       .limit(1);
 
-    if (userId.includes("-")) {
-      query = query.eq("id", userId);
+    if (identifier.by === "uuid") {
+      query = query.eq("id", identifier.value);
     } else {
-      const pid = Number(userId);
-      if (!Number.isFinite(pid)) {
-        return c.json({ success: false, error: "Invalid userId" }, 400);
-      }
-      query = query.eq("public_id", pid);
+      query = query.eq("public_id", identifier.value);
     }
 
     const { data: user, error: fetchError } = await query.maybeSingle();

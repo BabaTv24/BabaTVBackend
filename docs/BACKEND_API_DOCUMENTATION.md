@@ -90,15 +90,23 @@ Weryfikacja kodu 2FA (Google Authenticator).
 ### POST /api/admin/logout
 ### GET /api/admin/logout
 
-Wylogowanie administratora.
+Wylogowanie administratora. Czyści cookies sesji i zwraca akcje dla frontendu.
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Logged out successfully"
+  "message": "Logged out successfully",
+  "frontendAction": "clear_local_storage"
 }
 ```
+
+**Opis pol:**
+| Pole | Opis |
+|------|------|
+| frontendAction | Akcja dla frontendu - usun token z localStorage |
+
+**Cookies cleared:** admin_token, session, auth_token
 
 ---
 
@@ -504,7 +512,7 @@ Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
 
 ### GET /api/admin/stats
 
-Pobiera podstawowe statystyki.
+Pobiera podstawowe statystyki (z cache ~30s).
 
 **Response:**
 ```json
@@ -513,10 +521,18 @@ Pobiera podstawowe statystyki.
   "stats": {
     "usersTotal": 42,
     "activeUsers": 38,
+    "maxPublicId": 371,
     "revenue": 0
   }
 }
 ```
+
+**Opis pol:**
+| Pole | Opis |
+|------|------|
+| usersTotal | Calkowita liczba uzytkownikow |
+| activeUsers | Aktywni uzytkownicy (accessStatus=active) |
+| maxPublicId | Najwyzszy public_id (do "Dolaczyli juz") |
 
 ---
 
