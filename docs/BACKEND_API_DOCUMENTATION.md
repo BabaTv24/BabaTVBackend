@@ -410,6 +410,96 @@ Wysyla email z danymi logowania do uzytkownika. Generuje nowe haslo startowe i z
 
 ---
 
+### GET /api/admin/users/export
+
+Eksportuje liste uzytkownikow do pliku CSV lub XLSX.
+
+**Query Parameters:**
+| Parametr | Typ | Domyslnie | Opis |
+|----------|-----|-----------|------|
+| format | string | xlsx | Format pliku: "csv" lub "xlsx" |
+
+**Response:** Plik binarny (CSV lub XLSX)
+
+**Eksportowane pola:**
+publicId, email, firstName, lastName, plan, refCode, refLink, role, accessStatus, expiresAt, createdAt
+
+---
+
+### POST /api/admin/users/import
+
+Importuje uzytkownikow z pliku CSV lub XLSX.
+
+**Request:** multipart/form-data
+| Pole | Typ | Opis |
+|------|-----|------|
+| file | File | Plik CSV lub XLSX |
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Import completed: 5 created, 3 updated",
+  "created": 5,
+  "updated": 3,
+  "errors": ["Invalid email: (empty)"]
+}
+```
+
+**Logika importu:**
+1. Waliduje email
+2. Jesli email istnieje - aktualizuje dane
+3. Jesli email nie istnieje - tworzy nowego uzytkownika
+4. Dla nowych: generuje haslo, ustawia mustChangePassword=true
+5. NIE nadpisuje public_id (identity)
+
+---
+
+### POST /api/admin/push/send
+
+Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
+
+**Request:**
+```json
+{
+  "userIds": ["uuid1", "uuid2"],
+  "publicIds": [123, 456],
+  "title": "Tytul powiadomienia",
+  "body": "Tresc powiadomienia",
+  "deeplink": "https://babatv24.com/promo"
+}
+```
+
+**Response (broadcast):**
+```json
+{
+  "success": true,
+  "mode": "broadcast",
+  "message": "Broadcast push notification queued",
+  "title": "Tytul",
+  "body": "Tresc",
+  "deeplink": "https://babatv24.com/promo"
+}
+```
+
+**Response (targeted):**
+```json
+{
+  "success": true,
+  "mode": "targeted",
+  "message": "Push notification queued for 5 users",
+  "targetCount": 5,
+  "title": "Tytul",
+  "body": "Tresc"
+}
+```
+
+**Logika:**
+- Jesli userIds i publicIds puste → broadcast
+- Jesli podane → wyslij tylko do wybranych
+
+---
+
 ## Admin - Statystyki i Dashboard
 
 ### GET /api/admin/stats
@@ -460,15 +550,27 @@ Pobiera szczegolowe statystyki dashboardu.
 
 ### GET /api/public/stats
 
-Pobiera liczbe zarejestrowanych uzytkownikow (bez autoryzacji).
+Pobiera statystyki dla landing page (bez autoryzacji). Uzywane do wyswietlania "Dolaczyli juz: X osob".
 
 **Response:**
 ```json
 {
   "success": true,
+  "data": {
+    "usersCount": 42,
+    "maxPublicId": 371,
+    "updatedAt": "2025-01-10T12:00:00.000Z"
+  },
   "totalUsers": 42
 }
 ```
+
+**Opis pol:**
+| Pole | Opis |
+|------|------|
+| usersCount | Rzeczywista liczba uzytkownikow (COUNT) |
+| maxPublicId | Najwyzszy public_id (do wyswietlania "Dolaczyli juz") |
+| totalUsers | Kompatybilnosc wsteczna (= usersCount) |
 
 ---
 

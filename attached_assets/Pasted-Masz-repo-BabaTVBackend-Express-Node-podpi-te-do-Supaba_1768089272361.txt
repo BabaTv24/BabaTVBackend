@@ -1,0 +1,94 @@
+Masz repo BabaTVBackend (Express/Node) podpięte do Supabase. Zaimplementuj i napraw integrację tak, żeby frontend i panel admina działały stabilnie w produkcji.
+
+KONTEKST (obowiązkowe):
+- Frontend używa VITE_API_BASE_URL i wysyła fetch z credentials: 'include' oraz Authorization Bearer token (zgodnie z FRONTEND_API_DOCS). 
+- Admin ma endpointy /api/admin/login oraz /api/admin/logout (frontend oczekuje POST /api/admin/logout).
+- Użytkownicy w Supabase mają UUID w kolumnie "id" oraz liczbowy "public_id" (identity/sequence). Frontend w tabeli pokazuje public_id jako "ID".
+- W panelu admina działa dodawanie użytkowników i pola, ale są problemy:
+  1) “Dołączyło już” na landing page pokazuje starą liczbę (ma pokazywać max(public_id) = np. 371).
+  2) POST /api/admin/logout czasami zwraca 404 (lub nie czyści sesji po stronie frontu).
+  3) “Wyślij zaproszenie” w panelu admina (POST /api/admin/users/:id/send-invite) daje 404 User not found mimo że user istnieje — to zwykle wynika z błędnej identyfikacji (uuid vs public_id) albo z query po złej kolumnie.
+
+CELE BACKEND (do wykonania):
+A) PUBLIC STATS — endpoint dla landing page
+- Dodaj/napraw endpoint publiczny:
+  GET /api/public/stats
+- Ma zwracać JSON:
+  {
+    "success": true,
+    "data": {
+      "usersCount": <COUNT(*)>,
+      "maxPublicId": <MAX(public_id)>,
+      "updatedAt": "<ISO timestamp>"
+    }
+  }
+- Nie używaj sekwencji last_value jako “liczby użytkowników”. Ma być MAX(public_id) (bo to pokazujemy jako “Dołączyło już”) + osobno COUNT(*) (do analityki).
+
+B) ADMIN LOGOUT — zawsze istnieje i zwraca 200
+- Upewnij się, że istnieje:
+  POST /api/admin/logout
+- Zwracaj 200 z {success:true}.
+- Jeśli używacie cookies/sesji: czyść cookie (Set-Cookie z Max-Age=0) i unieważnij sesję.
+- Jeśli używacie JWT stateless: endpoint ma nadal zwrócić 200 i frontend ma skasować token — ale backend ma być zgodny i nie zwracać 404.
+
+C) SEND INVITE — napraw “User not found”
+- Endpoint:
+  POST /api/admin/users/:id/send-invite
+- Param :id może być:
+  - UUID (np. ea4c6e19-....) → szukaj po users.id
+  - public_id (liczba w stringu, np. "371") → szukaj po users.public_id
+- Zaimplementuj solidne rozpoznanie:
+  - jeśli wygląda jak UUID → query po id
+  - jeśli tylko cyfry → query po public_id
+- Zwracaj czytelny błąd gdy user naprawdę nie istnieje.
+
+D) ADMIN USERS LIST — zwracaj oba identyfikatory
+- GET /api/admin/users ma zwracać w każdym rekordzie:
+  - id (UUID string)
+  - publicId (number, z users.public_id)
+  - email
+  - firstName / lastName (obsłuż snake_case i camelCase jeśli istnieją w tabeli)
+  - plan (VIP/BRONZE/SILVER/GOLD/PLATIN/DIAMENT)
+  - refCode, refLink
+  - role (admin/moderator/user)
+  - accessStatus / expiresAt (jeśli istnieją)
+- Ustal jeden kanoniczny format odpowiedzi (np. camelCase), ale możesz “dual-write”/“dual-read” jeśli tabela ma duplikaty kolumn (first_name i firstName).
+
+E) EXPORT/IMPORT USERS
+- Dodaj endpointy admin:
+  - GET /api/admin/users/export?format=csv|xlsx
+    -> domyślnie xlsx
+  - POST /api/admin/users/import
+    -> przyjmuj plik CSV lub XLSX (multipart/form-data)
+- Eksport ma zawierać: publicId, email, firstName, lastName, plan, refCode, refLink, role, accessStatus, expiresAt, createdAt.
+- Import ma:
+  - walidować email
+  - tworzyć brakujących userów
+  - aktualizować istniejących po email
+  - NIE nadpisywać public_id (bo identity)
+  - w razie braku hasła: generować hasło i ustawiać mustChangePassword = true
+
+F) PUSH (admin użycie)
+- Backend ma już /api/push/send-broadcast oraz /api/push/send-with-deeplink.
+- Dodaj adminowy endpoint ułatwiający selekcję:
+  POST /api/admin/push/send
+  body: { userIds?: string[] (UUID), publicIds?: number[], title, body, deeplink?: string }
+- Jeśli userIds/publicIds puste → traktuj jako broadcast.
+- Jeśli podane → wyślij tylko do wybranych (wyciągnij ich subskrypcje z tabeli/subscriptions jeśli istnieje; jeśli nie istnieje, zwróć jasny błąd i instrukcję).
+
+G) TESTY SZYBKIE + LOGI
+- Dodaj minimalne logi (console.info) dla:
+  - /api/public/stats
+  - /api/admin/logout
+  - /api/admin/users/:id/send-invite
+- Dodaj w docs/API_REFERENCE aktualizację o /api/public/stats i /api/admin/push/send.
+
+WYMAGANIA TECH:
+- Nie psuj istniejących endpointów z API_REFERENCE (admin/users/push/video itd.).
+- Zachowaj security: admin endpoints wymagają JWT/2FA jak dotychczas.
+- CORS: zezwól na https://www.babatv24.com oraz admin paths, włącz credentials.
+- Po zmianach uruchom test w Replit:
+  - curl GET /api/public/stats
+  - curl POST /api/admin/logout (z tokenem jeśli wymagane)
+  - curl POST /api/admin/users/<uuid>/send-invite
+- Zrób commit z czytelnym opisem.

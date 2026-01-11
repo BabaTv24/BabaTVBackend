@@ -77,6 +77,10 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-10**: Added GET /api/admin/users/export - eksport CSV/XLSX
+- **2025-01-10**: Added POST /api/admin/users/import - import CSV/XLSX
+- **2025-01-10**: Added POST /api/admin/push/send - push admin z userIds/publicIds
+- **2025-01-10**: IMPROVED GET /api/public/stats - zwraca usersCount i maxPublicId
 - **2025-01-10**: IMPROVED send-invite - obsługa UUID i publicId, fallback hasła gdy brak SMTP
 - **2025-01-10**: Added mustChangePassword field - wymusza zmiane hasla po pierwszym logowaniu
 - **2025-01-10**: Added POST /api/admin/users/:id/send-invite - wysylka email z danymi logowania

@@ -10,6 +10,7 @@ http://localhost:5000
 | Endpoint | Metoda | Opis |
 |----------|--------|------|
 | `/` | GET | Status API |
+| `/api/public/stats` | GET | Statystyki (usersCount, maxPublicId) |
 | `/api/ads` | GET | Lista aktywnych reklam |
 | `/api/ads/:id` | GET | Szczegoly reklamy (deep-link) |
 | `/api/testimonials` | GET | Zatwierdzone opinie |
@@ -27,9 +28,16 @@ Header: Authorization: Bearer <token>
 
 ### Admin Panel
 - `GET /api/admin/dashboard` - Statystyki
-- `GET /api/admin/users` - Lista uzytkownikow
+- `GET /api/admin/users` - Lista uzytkownikow (z publicId)
+- `POST /api/admin/users` - Tworz uzytkownika
+- `PUT /api/admin/users/:id` - Edytuj uzytkownika
+- `DELETE /api/admin/users/:id` - Usun uzytkownika
+- `POST /api/admin/users/:id/send-invite` - Wyslij zaproszenie email
+- `GET /api/admin/users/export?format=csv|xlsx` - Eksport uzytkownikow
+- `POST /api/admin/users/import` - Import uzytkownikow (multipart)
 - `POST /api/admin/users/:id/toggle-premium` - Premium on/off
 - `POST /api/admin/users/:id/tags` - Dodaj tag
+- `POST /api/admin/logout` - Wylogowanie admina
 
 ### Reklamy (Admin)
 - `POST /api/ads/admin/create` - Nowa reklama
@@ -57,6 +65,7 @@ Header: Authorization: Bearer <token>
 ### Push
 - `POST /api/push/send-ad` - Push o reklamie
 - `POST /api/push/send-broadcast` - Broadcast
+- `POST /api/admin/push/send` - Push admin (userIds/publicIds/broadcast)
 
 ### SMS
 - `POST /api/sms/send` - Wyslij SMS

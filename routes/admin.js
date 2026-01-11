@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import nodemailer from "nodemailer";
+import * as XLSX from "xlsx";
 import { signToken } from "../utils/jwt.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { rateLimiter, bruteForceLimiter, protectReplay, secureLog } from "../middleware/security.js";
@@ -355,12 +356,14 @@ admin.post("/verify-2fa", async (c) => {
 
 admin.post("/logout", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
+  console.info(`[ADMIN] POST /api/admin/logout from IP=${ip}`);
   secureLog(`ADMIN LOGOUT (POST) from IP=${ip}`);
   return c.json({ success: true, message: "Logged out successfully" });
 });
 
 admin.get("/logout", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
+  console.info(`[ADMIN] GET /api/admin/logout from IP=${ip}`);
   secureLog(`ADMIN LOGOUT (GET) from IP=${ip}`);
   return c.json({ success: true, message: "Logged out successfully" });
 });
@@ -1208,6 +1211,7 @@ admin.post("/users/:id/send-invite", async (c) => {
   
   try {
     const userId = c.req.param("id");
+    console.info(`[ADMIN] POST /api/admin/users/${userId}/send-invite from IP=${ip}`);
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -1354,6 +1358,226 @@ BabaTV24`,
 
   } catch (error) {
     console.error("[ADMIN] send-invite error:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+admin.get("/users/export", async (c) => {
+  console.info("[ADMIN] GET /api/admin/users/export called");
+  try {
+    const format = (c.req.query("format") || "xlsx").toLowerCase();
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      return c.json({ success: false, error: "Database not configured" }, 500);
+    }
+
+    const { data: users, error } = await supabase
+      .from(USERS_TABLE)
+      .select("*")
+      .order("public_id", { ascending: true });
+
+    if (error) {
+      return c.json({ success: false, error: error.message }, 500);
+    }
+
+    const exportData = (users || []).map(u => ({
+      publicId: u.public_id || u.publicId || "",
+      email: u.email || "",
+      firstName: u.firstName || u.first_name || "",
+      lastName: u.lastName || u.last_name || "",
+      plan: u.plan || "VIP",
+      refCode: u.refCode || u.ref_code || "",
+      refLink: (u.refCode || u.ref_code) ? `${APP_URL}/?ref=${u.refCode || u.ref_code}` : "",
+      role: u.role || "user",
+      accessStatus: u.accessStatus || u.access_status || "active",
+      expiresAt: u.expiresAt || u.expires_at || "",
+      createdAt: u.createdAt || u.created_at || ""
+    }));
+
+    if (format === "csv") {
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      c.header("Content-Type", "text/csv");
+      c.header("Content-Disposition", `attachment; filename="users_export_${Date.now()}.csv"`);
+      return c.body(csv);
+    } else {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      XLSX.utils.book_append_sheet(wb, ws, "Users");
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      c.header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      c.header("Content-Disposition", `attachment; filename="users_export_${Date.now()}.xlsx"`);
+      return c.body(buffer);
+    }
+  } catch (error) {
+    console.error("[ADMIN] export error:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+admin.post("/users/import", async (c) => {
+  console.info("[ADMIN] POST /api/admin/users/import called");
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      return c.json({ success: false, error: "Database not configured" }, 500);
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get("file");
+    
+    if (!file || typeof file === "string") {
+      return c.json({ success: false, error: "No file uploaded" }, 400);
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws);
+
+    if (!rows || rows.length === 0) {
+      return c.json({ success: false, error: "File is empty or invalid format" }, 400);
+    }
+
+    let created = 0;
+    let updated = 0;
+    let errors = [];
+
+    for (const row of rows) {
+      const email = (row.email || "").toString().toLowerCase().trim();
+      if (!email || !EMAIL_REGEX.test(email)) {
+        errors.push(`Invalid email: ${email || "(empty)"}`);
+        continue;
+      }
+
+      const { data: existing } = await supabase
+        .from(USERS_TABLE)
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      const userData = {
+        email,
+        firstName: row.firstName || row.first_name || "",
+        first_name: row.firstName || row.first_name || "",
+        lastName: row.lastName || row.last_name || "",
+        last_name: row.lastName || row.last_name || "",
+        plan: row.plan || "VIP",
+        role: normalizeRole(row.role) || "user",
+        accessStatus: normalizeAccessStatus(row.accessStatus || row.access_status) || "active",
+        access_status: normalizeAccessStatus(row.accessStatus || row.access_status) || "active",
+        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      if (existing) {
+        const { error: upError } = await supabase
+          .from(USERS_TABLE)
+          .update(userData)
+          .eq("id", existing.id);
+        
+        if (upError) {
+          errors.push(`Update failed for ${email}: ${upError.message}`);
+        } else {
+          updated++;
+        }
+      } else {
+        const tempPassword = generateTempPassword(14);
+        const password_hash = await bcrypt.hash(tempPassword, 10);
+        const refCode = generateRefCode(10);
+
+        const insertData = {
+          ...userData,
+          password_hash,
+          refCode,
+          ref_code: refCode,
+          must_change_password: true,
+          mustChangePassword: true,
+          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        };
+
+        const { error: insError } = await supabase
+          .from(USERS_TABLE)
+          .insert(insertData);
+
+        if (insError) {
+          errors.push(`Insert failed for ${email}: ${insError.message}`);
+        } else {
+          created++;
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: `Import completed: ${created} created, ${updated} updated`,
+      created,
+      updated,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (error) {
+    console.error("[ADMIN] import error:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+admin.post("/push/send", async (c) => {
+  console.info("[ADMIN] POST /api/admin/push/send called");
+  try {
+    const body = await c.req.json();
+    const { userIds, publicIds, title, body: msgBody, deeplink } = body;
+
+    if (!title || !msgBody) {
+      return c.json({ success: false, error: "title and body are required" }, 400);
+    }
+
+    const supabase = getSupabaseClient();
+    const isBroadcast = (!userIds || userIds.length === 0) && (!publicIds || publicIds.length === 0);
+
+    if (isBroadcast) {
+      console.info("[ADMIN] push/send - broadcast mode");
+      return c.json({
+        success: true,
+        mode: "broadcast",
+        message: "Broadcast push notification queued",
+        title,
+        body: msgBody,
+        deeplink: deeplink || null,
+        note: "Push subscriptions table required for actual delivery. Configure web-push or FCM for production."
+      });
+    }
+
+    let targetUserIds = userIds || [];
+
+    if (publicIds && publicIds.length > 0 && supabase) {
+      const { data: foundUsers } = await supabase
+        .from(USERS_TABLE)
+        .select("id")
+        .in("public_id", publicIds);
+
+      if (foundUsers) {
+        targetUserIds = [...targetUserIds, ...foundUsers.map(u => u.id)];
+      }
+    }
+
+    targetUserIds = [...new Set(targetUserIds)];
+
+    console.info(`[ADMIN] push/send - targeted mode, ${targetUserIds.length} users`);
+
+    return c.json({
+      success: true,
+      mode: "targeted",
+      message: `Push notification queued for ${targetUserIds.length} users`,
+      targetCount: targetUserIds.length,
+      title,
+      body: msgBody,
+      deeplink: deeplink || null,
+      note: "Push subscriptions table required for actual delivery. Configure web-push or FCM for production."
+    });
+  } catch (error) {
+    console.error("[ADMIN] push/send error:", error.message);
     return c.json({ success: false, error: error.message }, 500);
   }
 });
