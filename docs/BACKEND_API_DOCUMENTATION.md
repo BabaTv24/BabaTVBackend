@@ -470,13 +470,26 @@ Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
 **Request:**
 ```json
 {
-  "userIds": ["uuid1", "uuid2"],
-  "publicIds": [123, 456],
   "title": "Tytul powiadomienia",
   "body": "Tresc powiadomienia",
+  "userIds": ["uuid1", "uuid2"],
+  "publicIds": [123, 456],
+  "plans": ["VIP", "Premium"],
+  "sendToAll": false,
   "deeplink": "https://babatv24.com/promo"
 }
 ```
+
+**Parametry:**
+| Pole | Typ | Opis |
+|------|-----|------|
+| title | string | Tytul (wymagany) |
+| body | string | Tresc (wymagana) |
+| userIds | string[] | Lista UUID uzytkownikow |
+| publicIds | number[] | Lista public_id |
+| plans | string[] | Filtruj po planach (np. ["VIP"]) |
+| sendToAll | boolean | true = broadcast do wszystkich |
+| deeplink | string | Link do otwarcia w aplikacji |
 
 **Response (broadcast):**
 ```json
@@ -503,8 +516,10 @@ Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
 ```
 
 **Logika:**
-- Jesli userIds i publicIds puste → broadcast
-- Jesli podane → wyslij tylko do wybranych
+- `sendToAll: true` → broadcast do wszystkich
+- `userIds` lub `publicIds` podane → wyslij tylko do wybranych
+- `plans: ["VIP", "Premium"]` → wyslij do uzytkownikow z tymi planami
+- Brak targetow → broadcast
 
 ---
 

@@ -1585,21 +1585,20 @@ admin.post("/push/send", async (c) => {
   console.info("[ADMIN] POST /api/admin/push/send called");
   try {
     const body = await c.req.json();
-    const { userIds, publicIds, title, body: msgBody, deeplink } = body;
+    const { userIds, publicIds, plans, sendToAll, title, body: msgBody, deeplink } = body;
 
     if (!title || !msgBody) {
       return c.json({ success: false, error: "title and body are required" }, 400);
     }
 
     const supabase = getSupabaseClient();
-    const isBroadcast = (!userIds || userIds.length === 0) && (!publicIds || publicIds.length === 0);
 
-    if (isBroadcast) {
-      console.info("[ADMIN] push/send - broadcast mode");
+    if (sendToAll === true) {
+      console.info("[ADMIN] push/send - sendToAll broadcast mode");
       return c.json({
         success: true,
         mode: "broadcast",
-        message: "Broadcast push notification queued",
+        message: "Broadcast push notification queued for all users",
         title,
         body: msgBody,
         deeplink: deeplink || null,
@@ -1620,7 +1619,34 @@ admin.post("/push/send", async (c) => {
       }
     }
 
+    if (plans && plans.length > 0 && supabase) {
+      console.info(`[ADMIN] push/send - filtering by plans: ${plans.join(", ")}`);
+      const { data: planUsers } = await supabase
+        .from(USERS_TABLE)
+        .select("id")
+        .in("plan", plans);
+
+      if (planUsers) {
+        targetUserIds = [...targetUserIds, ...planUsers.map(u => u.id)];
+      }
+    }
+
     targetUserIds = [...new Set(targetUserIds)];
+
+    const isBroadcast = targetUserIds.length === 0 && (!plans || plans.length === 0);
+
+    if (isBroadcast) {
+      console.info("[ADMIN] push/send - broadcast mode (no targets specified)");
+      return c.json({
+        success: true,
+        mode: "broadcast",
+        message: "Broadcast push notification queued",
+        title,
+        body: msgBody,
+        deeplink: deeplink || null,
+        note: "Push subscriptions table required for actual delivery. Configure web-push or FCM for production."
+      });
+    }
 
     console.info(`[ADMIN] push/send - targeted mode, ${targetUserIds.length} users`);
 

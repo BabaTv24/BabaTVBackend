@@ -77,6 +77,7 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-12**: IMPROVED POST /api/admin/push/send - dodano plans i sendToAll
 - **2025-01-11**: IMPROVED logout - czyści 3 cookies (admin_token, session, auth_token), zwraca frontendAction
 - **2025-01-11**: IMPROVED GET /api/admin/stats - dodano maxPublicId + 30s cache
 - **2025-01-11**: IMPROVED resolveUserIdentifier - obsługuje UUID z/bez kresek (UUID_REGEX)

@@ -1,0 +1,57 @@
+Masz istniejący backend BabaTV24 (Node.js, Hono/Express – użyj tego co jest w repo). Zrób poprawki BEZ przepisywania całej aplikacji. Priorytet: naprawa “send invite” + pod push w adminie + public stats.
+
+WYMAGANIA (MUST):
+1) Napraw endpoint zaproszenia:
+   - Upewnij się, że endpoint istnieje i jest zarejestrowany w routerze:
+     POST /api/admin/users/:id/send-invite
+   - :id ma akceptować UUID albo publicId.
+     * Jeśli param wygląda jak liczba => traktuj jako publicId.
+     * W przeciwnym razie => traktuj jako UUID.
+   - Wyszukaj usera w Supabase:
+     * UUID: where id = :id
+     * publicId: where public_id = :id
+   - Jeśli user nie istnieje => 404 { success:false, error:"User not found" }
+   - Jeśli istnieje:
+     a) Jeśli ref_code/ref_link puste => wygeneruj i zapisz.
+     b) Jeśli user nie ma hasła lub admin wymusza invite => wygeneruj hasło 14 znaków, zapisz password_hash (bcrypt) i ustaw must_change_password = true.
+     c) Jeśli SMTP skonfigurowane (SMTP_HOST/SMTP_USER/SMTP_PASS/FROM_EMAIL):
+        - Wyślij email z:
+          - login link: https://www.babatv24.com/login (lub /admin/login jeśli to panel)
+          - hasło tymczasowe
+          - refLink
+        - Zwróć { success:true, emailSent:true }
+       Jeśli SMTP brak:
+        - Nie wysyłaj maila, ale zwróć { success:true, emailSent:false, generatedPassword:"...", refLink:"..." }
+   - Dodaj logi serwerowe dla requestId i paramów (bez wrażliwych danych).
+
+2) Ujednolić model usera i mapowanie pól:
+   - Z Supabase czytaj/zapisuj zarówno snake_case jak i camelCase (dual-write/dual-read):
+     first_name <-> firstName, last_name <-> lastName, access_status <-> accessStatus, public_id <-> publicId itd.
+   - W odpowiedziach API ZAWSZE zwracaj camelCase (publicId, firstName, accessStatus, refCode, refLink, mustChangePassword).
+
+3) Publiczny licznik użytkowników:
+   - Endpoint: GET /api/public/stats
+   - Ma zwracać totalUsers na podstawie COUNT(*) w public.users.
+   - Format: { success:true, totalUsers: <number> }
+
+4) Admin PUSH dla zaznaczonych:
+   - Dodaj endpoint: POST /api/admin/push/send
+   - Payload:
+     { title:string, body:string, userIds?: string[], plans?: string[], sendToAll?: boolean }
+   - Logika:
+     - jeśli sendToAll true => broadcast do wszystkich subskrypcji
+     - jeśli userIds podane => wyślij tylko do tych userów (po ich subskrypcjach)
+     - jeśli plans podane => wyślij do userów o plan in (plans)
+   - Wykorzystaj istniejący moduł webpush / tabelę subskrypcji (jeśli jest). Jeśli jej nie ma:
+     - stwórz tabelę push_subscriptions (user_id uuid, endpoint text, p256dh text, auth text, created_at)
+     - endpoint /api/push/subscribe już istnieje wg docs – dopnij go do tej tabeli.
+
+5) CORS:
+   - Upewnij się, że CORS dopuszcza https://babatv24.com i https://www.babatv24.com i credentials jeśli używane.
+
+TESTY (MIN):
+- curl dla send-invite po UUID i po publicId
+- curl GET /api/public/stats
+- sprawdź, że send-invite zwraca generatedPassword gdy SMTP brak
+
+Na koniec: podaj mi listę plików które zmieniłeś i krótkie instrukcje deploy na Render (build/start).
