@@ -523,6 +523,27 @@ Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
 
 ---
 
+## Stats - Landing Page Counter
+
+### GET /api/stats/users-count
+
+Zwraca liczbe uzytkownikow i maksymalne public_id dla landing page.
+
+**Response:**
+```json
+{
+  "success": true,
+  "usersCount": 42,
+  "maxPublicId": 371
+}
+```
+
+**Uzycie:**
+- Landing page wyswietla `maxPublicId` jako "Dolczylo juz: 371 uzytkownikow"
+- Endpoint publiczny, nie wymaga autoryzacji
+
+---
+
 ## Admin - Statystyki i Dashboard
 
 ### GET /api/admin/stats

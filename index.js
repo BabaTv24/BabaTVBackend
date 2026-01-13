@@ -18,6 +18,7 @@ import chatRoutes from "./routes/chat.js";
 import videoRoutes from "./routes/video.js";
 import adminRoutes from "./routes/admin.js";
 import publicRoutes from "./routes/public.js";
+import statsRoutes from "./routes/stats.js";
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ app.get("/", (c) => {
       video: "/api/video",
       admin: "/api/admin",
       public: "/api/public",
+      stats: "/api/stats",
     },
   });
 });
@@ -83,6 +85,7 @@ app.route("/api/chat", chatRoutes);
 app.route("/api/video", videoRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/public", publicRoutes);
+app.route("/api/stats", statsRoutes);
 
 app.onError((err, c) => {
   console.error("SERVER ERROR:", err);
@@ -109,7 +112,7 @@ app.notFound((c) => {
 
 const port = Number(process.env.PORT) || 5000;
 
-console.log(`BabaTV24 Backend v2.2.0 ULTRA-PRO SECURITY running on port ${port}`);
+console.log(`BabaTV24 Backend v2.3.0 ULTRA-PRO SECURITY running on port ${port}`);
 
 serve({
   fetch: app.fetch,

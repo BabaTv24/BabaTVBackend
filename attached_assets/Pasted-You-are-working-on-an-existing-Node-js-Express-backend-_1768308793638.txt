@@ -1,0 +1,79 @@
+You are working on an existing Node.js/Express backend called “BabaTVBackend” deployed to Render and connected to Supabase Postgres.
+Goal: make production stable and fully compatible with the current Admin Panel at https://www.babatv24.com.
+
+CRITICAL BUG TO FIX NOW:
+Admin Panel calls POST /api/admin/users/:id/send-invite when clicking the envelope icon “Wyślij zaproszenie”.
+In production it returns 404 (Not Found) or {success:false,error:"User not found"}.
+We must implement/repair this endpoint so it works for BOTH UUID (users.id) and bigint public_id.
+
+REQUIREMENTS (DO ALL):
+1) ROUTING: Ensure the admin router is mounted correctly:
+   - /api/admin should exist and expose:
+     - POST /api/admin/users/:id/send-invite   (must work)
+     - POST /api/admin/logout                 (must work)
+     - GET  /api/admin/stats                  (must work; used by dashboard)
+   Update the /status endpoint “endpoints” list to include these routes.
+
+2) USER ID RESOLUTION:
+   For any route with :id, accept:
+   - UUID (users.id)
+   - numeric public_id (users.public_id)
+   Implement a helper: resolveUser(idParam):
+   - if idParam matches UUID regex => query users where id = $1
+   - else if numeric => query users where public_id = $1::bigint
+   If not found => 404 JSON {success:false,error:"User not found"}.
+
+3) SEND-INVITE LOGIC:
+   Endpoint: POST /api/admin/users/:id/send-invite
+   - Resolve user (UUID or public_id).
+   - Ensure user has ref_code + ref_link:
+     - if missing, generate ref_code (short unique) and ref_link (https://www.babatv24.com/?ref=REFCODE) and save.
+   - Generate a secure temporary password (e.g., 12–16 chars, mixed) and store password_hash.
+   - Set must_change_password = true (or mustChangePassword) in DB (support both snake_case and camelCase if needed).
+   - If SMTP env is configured (SMTP_HOST, SMTP_USER, SMTP_PASS, FROM_EMAIL):
+     send email with the login link + temp password + ref link
+     return {success:true,emailSent:true}
+   - If SMTP is not configured:
+     return {success:true,emailSent:false,generatedPassword:"...",refCode:"...",refLink:"..."} so Admin UI can display it.
+   IMPORTANT: Do NOT fail if SMTP missing. Must still succeed.
+
+4) LOGOUT:
+   Implement POST /api/admin/logout:
+   - If you use JWT: return {success:true} and optionally support a token blacklist (in-memory or DB) but at minimum allow frontend to clear token.
+   - If you use cookies/sessions: destroy session + clear cookie.
+   Must not return 404.
+
+5) STATS FOR LANDING PAGE COUNTER:
+   Add public endpoint GET /api/stats/users-count returning:
+   {success:true, usersCount:<count(*)>, maxPublicId:<max(public_id)>}
+   (Landing page should display maxPublicId as “Dołączyło już”.)
+
+6) CORS + AUTH:
+   - Ensure CORS allows https://www.babatv24.com and https://babatv24.com
+   - Allow credentials if cookies are used.
+   - Ensure admin routes require admin auth (existing middleware), but do not accidentally block send-invite due to missing header. Standardize:
+     Authorization: Bearer <token>
+   - Return 401 for auth problems (not 404).
+
+7) DATABASE COMPATIBILITY:
+   The users table contains BOTH camelCase and snake_case columns in production.
+   Implement “dual write” for these fields in user update/create when relevant:
+   - firstName <-> first_name
+   - lastName  <-> last_name
+   - accessStatus <-> access_status
+   - mustChangePassword <-> must_change_password
+   Keep read preference: if camelCase exists use it, else snake_case, but never lose data.
+
+8) VERSION & DEPLOY:
+   - Bump backend version to 2.3.0 (or next patch) in /status output.
+   - Add minimal integration tests or a local curl test section in README:
+     - create user
+     - send invite by UUID
+     - send invite by public_id
+     - logout
+     - stats users-count
+
+DELIVERABLES:
+- Code changes committed in repo (routes + controller + helpers).
+- Update docs or at least inline comment how to configure SMTP.
+- Confirm with example curl requests and expected JSON responses.
