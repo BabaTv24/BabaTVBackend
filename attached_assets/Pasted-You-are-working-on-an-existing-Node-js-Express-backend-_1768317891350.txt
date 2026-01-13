@@ -1,0 +1,46 @@
+You are working on an existing Node.js/Express backend “BabaTV24 Backend ULTRA-PRO SECURITY” deployed to Render and using Supabase Postgres.
+
+GOAL: Fix production bug: POST /api/admin/users/:id/send-invite returns 404 "User not found" even though users exist (stats show usersCount=2, maxPublicId=371). We must make this endpoint robust to accept both UUID (users.id) and numeric publicId (users.public_id). Also ensure admin panel features: i18n payload consistency, plan field, refCode/refLink generation, and push broadcast targeting.
+
+REQUIREMENTS:
+1) Implement helper resolveUserIdentifier(param):
+   - If param matches UUID regex, try to find user where users.id == param.
+   - If not found, also try users.auth_id == param (if column exists) OR users.user_id == param (if exists).
+   - If param is numeric, try users.public_id == int(param).
+   - Also accept formats like "USR-371" by extracting digits.
+   - Return normalized user row with camelCase fields: id, publicId, email, firstName, lastName, role, plan, refCode, refLink, accessStatus, createdAt, updatedAt.
+
+2) Update route POST /api/admin/users/:id/send-invite:
+   - Use resolveUserIdentifier(req.params.id).
+   - If user not found return 404 { success:false, error:"User not found", details:{ param:req.params.id } }
+   - Create row in user_invites with user_id referencing users.id (UUID). Store email, generatedPassword (hashed in users table; plain only returned once), mustChangePassword=true.
+   - If SMTP env configured: send email with login url + temporary password + mustChangePassword info. Return {success:true, emailSent:true}
+   - If SMTP missing: return {success:true, emailSent:false, generatedPassword:"...", loginUrl:"https://www.babatv24.com/login"} and DO NOT log the password.
+   - Ensure CORS allows https://babatv24.com and https://www.babatv24.com with credentials.
+
+3) Ensure GET /api/admin/users returns both id (UUID) and publicId (number) ALWAYS.
+   - UI shows publicId but actions must use id (UUID).
+   - Avoid dual-write confusion: Keep DB snake_case but API response camelCase.
+   - Keep plan uppercase enum: VIP/BRONZE/SILVER/GOLD/PLATIN/DIAMENT
+   - Keep role lowercase: user/moderator/admin
+
+4) Add endpoint GET /api/admin/users/:id (optional) that also uses resolveUserIdentifier so admin can fetch by UUID or publicId.
+
+5) Add CSV/Excel export/import endpoints:
+   - GET /api/admin/users/export?format=csv|xlsx returns file with columns: publicId, id, email, firstName, lastName, role, plan, refCode, refLink, accessStatus, createdAt, expiresAt.
+   - POST /api/admin/users/import (multipart) accepts csv/xlsx and upserts by email.
+
+6) PUSH improvements:
+   - Provide POST /api/admin/push/send that accepts:
+     { title, body, target: { all:boolean, userIds?:string[], plans?:string[], roles?:string[] } }
+   - Backend resolves target users and sends push via existing push service (or queues if offline). Return counts.
+
+7) Logging:
+   - For send-invite, log ONLY: param, resolvedBy ("id"/"public_id"/"auth_id"), resolvedUserPublicId.
+   - Do not log tokens or passwords.
+
+DELIVERABLES:
+- Modify existing code with minimal changes.
+- Add/Update docs in BACKEND_API_DOCUMENTATION.md accordingly.
+- Ensure it runs in Render (PORT from env).
+- Provide migration-safe SQL separately (do not attempt destructive PK changes in code).

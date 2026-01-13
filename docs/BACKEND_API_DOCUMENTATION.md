@@ -170,6 +170,48 @@ Pobiera liste uzytkownikow z paginacja i filtrami.
 
 ---
 
+### GET /api/admin/users/:id
+
+Pobiera pojedynczego uzytkownika po UUID lub publicId.
+
+**Akceptowane formaty :id:**
+- UUID: `ea4c6e19-1234-5678-abcd-123456789abc`
+- UUID bez kresek: `ea4c6e191234567890abcdef01234567`
+- publicId: `371`
+- Format USR: `USR-371`
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "ea4c6e19-1234-5678-abcd-123456789abc",
+    "publicId": 371,
+    "email": "jan.kowalski@example.com",
+    "firstName": "Jan",
+    "lastName": "Kowalski",
+    "role": "user",
+    "plan": "VIP",
+    "refCode": "BABA-ABC123",
+    "refLink": "https://www.babatv24.com/?ref=BABA-ABC123",
+    "accessStatus": "active",
+    "createdAt": "2024-01-15T10:30:00.000Z"
+  },
+  "resolvedBy": "public_id"
+}
+```
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": "User not found",
+  "details": { "param": "999" }
+}
+```
+
+---
+
 ### POST /api/admin/users
 
 Tworzy nowego uzytkownika.
@@ -487,9 +529,24 @@ Wysyla powiadomienia push do wybranych uzytkownikow lub broadcast.
 | body | string | Tresc (wymagana) |
 | userIds | string[] | Lista UUID uzytkownikow |
 | publicIds | number[] | Lista public_id |
-| plans | string[] | Filtruj po planach (np. ["VIP"]) |
+| plans | string[] | Filtruj po planach (np. ["VIP", "GOLD"]) |
+| roles | string[] | Filtruj po rolach (np. ["admin", "moderator"]) |
 | sendToAll | boolean | true = broadcast do wszystkich |
+| target | object | Alternatywny format: { all, userIds, plans, roles } |
 | deeplink | string | Link do otwarcia w aplikacji |
+
+**Przyklad z target object:**
+```json
+{
+  "title": "Nowosci VIP",
+  "body": "Sprawdz nowe funkcje",
+  "target": {
+    "all": false,
+    "plans": ["VIP", "GOLD"],
+    "roles": ["admin"]
+  }
+}
+```
 
 **Response (broadcast):**
 ```json

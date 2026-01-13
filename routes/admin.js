@@ -88,20 +88,77 @@ const generateRefCode = (length = 10) => {
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 const UUID_REGEX = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+const USR_PREFIX_REGEX = /^USR-?(\d+)$/i;
 
 const resolveUserIdentifier = (param) => {
   if (!param || typeof param !== "string") {
-    return { by: null, value: null };
+    return { by: null, value: null, original: param };
   }
   const trimmed = param.trim();
+  
   if (UUID_REGEX.test(trimmed)) {
-    return { by: "uuid", value: trimmed };
+    return { by: "id", value: trimmed, original: param };
   }
+  
+  const usrMatch = trimmed.match(USR_PREFIX_REGEX);
+  if (usrMatch) {
+    const num = parseInt(usrMatch[1], 10);
+    return { by: "public_id", value: num, original: param };
+  }
+  
   const num = Number(trimmed);
   if (Number.isFinite(num) && num > 0 && Number.isInteger(num)) {
-    return { by: "public_id", value: num };
+    return { by: "public_id", value: num, original: param };
   }
-  return { by: null, value: null };
+  
+  return { by: null, value: null, original: param };
+};
+
+const findUserByIdentifier = async (supabase, identifier) => {
+  if (!supabase || !identifier.by) return null;
+  
+  const selectFields = "id, email, public_id, external_id, auth_id, user_id, firstName, first_name, lastName, last_name, phone, role, plan, accessStatus, access_status, refCode, ref_code, expiresAt, expires_at, mustChangePassword, must_change_password, createdAt, created_at, updatedAt, updated_at";
+  
+  if (identifier.by === "id") {
+    const { data: user } = await supabase
+      .from(USERS_TABLE)
+      .select(selectFields)
+      .eq("id", identifier.value)
+      .maybeSingle();
+    
+    if (user) return { user, resolvedBy: "id" };
+    
+    const { data: byAuthId } = await supabase
+      .from(USERS_TABLE)
+      .select(selectFields)
+      .eq("auth_id", identifier.value)
+      .maybeSingle();
+    
+    if (byAuthId) return { user: byAuthId, resolvedBy: "auth_id" };
+    
+    const { data: byUserId } = await supabase
+      .from(USERS_TABLE)
+      .select(selectFields)
+      .eq("user_id", identifier.value)
+      .maybeSingle();
+    
+    if (byUserId) return { user: byUserId, resolvedBy: "user_id" };
+    
+    return null;
+  }
+  
+  if (identifier.by === "public_id") {
+    const { data: user } = await supabase
+      .from(USERS_TABLE)
+      .select(selectFields)
+      .eq("public_id", identifier.value)
+      .maybeSingle();
+    
+    if (user) return { user, resolvedBy: "public_id" };
+    return null;
+  }
+  
+  return null;
 };
 
 const normalizeUserResponse = (user) => {
@@ -1263,6 +1320,40 @@ admin.get("/activity", async (c) => {
   }
 });
 
+admin.get("/users/:id", async (c) => {
+  try {
+    const userId = c.req.param("id");
+    console.info(`[ADMIN] GET /api/admin/users/${userId} called`);
+    const supabase = getSupabaseClient();
+
+    if (!supabase) {
+      return c.json({ success: false, error: "Database not configured" }, 500);
+    }
+
+    const identifier = resolveUserIdentifier(userId);
+    if (!identifier.by) {
+      return c.json({ success: false, error: "Invalid userId format", details: { param: userId } }, 400);
+    }
+
+    const result = await findUserByIdentifier(supabase, identifier);
+    
+    if (!result) {
+      return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
+    }
+
+    console.info(`[ADMIN] User resolved: param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${result.user.public_id}`);
+
+    return c.json({ 
+      success: true, 
+      user: normalizeUserResponse(result.user),
+      resolvedBy: result.resolvedBy
+    });
+  } catch (error) {
+    console.error("[ADMIN] GET /users/:id error:", error.message);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
 admin.post("/users/:id/send-invite", async (c) => {
   const ip = c.req.header("x-forwarded-for") || "unknown";
   
@@ -1277,25 +1368,17 @@ admin.post("/users/:id/send-invite", async (c) => {
 
     const identifier = resolveUserIdentifier(userId);
     if (!identifier.by) {
-      return c.json({ success: false, error: "Invalid userId format" }, 400);
+      return c.json({ success: false, error: "Invalid userId format", details: { param: userId } }, 400);
     }
 
-    let query = supabase
-      .from(USERS_TABLE)
-      .select("id, email, public_id, external_id, firstName, first_name, lastName, last_name, refCode, ref_code")
-      .limit(1);
+    const result = await findUserByIdentifier(supabase, identifier);
 
-    if (identifier.by === "uuid") {
-      query = query.eq("id", identifier.value);
-    } else {
-      query = query.eq("public_id", identifier.value);
+    if (!result) {
+      return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
     }
 
-    const { data: user, error: fetchError } = await query.maybeSingle();
-
-    if (fetchError || !user) {
-      return c.json({ success: false, error: "User not found" }, 404);
-    }
+    const user = result.user;
+    console.info(`[ADMIN] send-invite: param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${user.public_id}`);
 
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -1441,16 +1524,17 @@ admin.get("/users/export", async (c) => {
 
     const exportData = (users || []).map(u => ({
       publicId: u.public_id || u.publicId || "",
+      id: u.id || "",
       email: u.email || "",
       firstName: u.firstName || u.first_name || "",
       lastName: u.lastName || u.last_name || "",
+      role: u.role || "user",
       plan: u.plan || "VIP",
       refCode: u.refCode || u.ref_code || "",
       refLink: (u.refCode || u.ref_code) ? `${APP_URL}/?ref=${u.refCode || u.ref_code}` : "",
-      role: u.role || "user",
       accessStatus: u.accessStatus || u.access_status || "active",
-      expiresAt: u.expiresAt || u.expires_at || "",
-      createdAt: u.createdAt || u.created_at || ""
+      createdAt: u.createdAt || u.created_at || "",
+      expiresAt: u.expiresAt || u.expires_at || ""
     }));
 
     if (format === "csv") {
@@ -1585,7 +1669,13 @@ admin.post("/push/send", async (c) => {
   console.info("[ADMIN] POST /api/admin/push/send called");
   try {
     const body = await c.req.json();
-    const { userIds, publicIds, plans, sendToAll, title, body: msgBody, deeplink } = body;
+    const { title, body: msgBody, deeplink, target } = body;
+    
+    const userIds = body.userIds || target?.userIds || [];
+    const publicIds = body.publicIds || target?.publicIds || [];
+    const plans = body.plans || target?.plans || [];
+    const roles = body.roles || target?.roles || [];
+    const sendToAll = body.sendToAll ?? target?.all ?? false;
 
     if (!title || !msgBody) {
       return c.json({ success: false, error: "title and body are required" }, 400);
@@ -1595,10 +1685,18 @@ admin.post("/push/send", async (c) => {
 
     if (sendToAll === true) {
       console.info("[ADMIN] push/send - sendToAll broadcast mode");
+      let totalCount = 0;
+      if (supabase) {
+        const { count } = await supabase
+          .from(USERS_TABLE)
+          .select("*", { count: "exact", head: true });
+        totalCount = count || 0;
+      }
       return c.json({
         success: true,
         mode: "broadcast",
         message: "Broadcast push notification queued for all users",
+        targetCount: totalCount,
         title,
         body: msgBody,
         deeplink: deeplink || null,
@@ -1606,9 +1704,9 @@ admin.post("/push/send", async (c) => {
       });
     }
 
-    let targetUserIds = userIds || [];
+    let targetUserIds = [...userIds];
 
-    if (publicIds && publicIds.length > 0 && supabase) {
+    if (publicIds.length > 0 && supabase) {
       const { data: foundUsers } = await supabase
         .from(USERS_TABLE)
         .select("id")
@@ -1619,7 +1717,7 @@ admin.post("/push/send", async (c) => {
       }
     }
 
-    if (plans && plans.length > 0 && supabase) {
+    if (plans.length > 0 && supabase) {
       console.info(`[ADMIN] push/send - filtering by plans: ${plans.join(", ")}`);
       const { data: planUsers } = await supabase
         .from(USERS_TABLE)
@@ -1631,9 +1729,21 @@ admin.post("/push/send", async (c) => {
       }
     }
 
+    if (roles.length > 0 && supabase) {
+      console.info(`[ADMIN] push/send - filtering by roles: ${roles.join(", ")}`);
+      const { data: roleUsers } = await supabase
+        .from(USERS_TABLE)
+        .select("id")
+        .in("role", roles);
+
+      if (roleUsers) {
+        targetUserIds = [...targetUserIds, ...roleUsers.map(u => u.id)];
+      }
+    }
+
     targetUserIds = [...new Set(targetUserIds)];
 
-    const isBroadcast = targetUserIds.length === 0 && (!plans || plans.length === 0);
+    const isBroadcast = targetUserIds.length === 0 && plans.length === 0 && roles.length === 0;
 
     if (isBroadcast) {
       console.info("[ADMIN] push/send - broadcast mode (no targets specified)");
