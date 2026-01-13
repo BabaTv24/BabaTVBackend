@@ -896,5 +896,22 @@ const sendInvite = async (token: string, userId: string) => {
 
 ---
 
-**Wersja dokumentacji:** 2.3.0
-**Data aktualizacji:** 2025-01-10
+**Wersja dokumentacji:** 2.3.1
+**Data aktualizacji:** 2025-01-13
+
+---
+
+## Changelog
+
+### v2.3.1 (2025-01-13)
+- **GET /api/admin/users/:id** - nowy endpoint do pobierania uzytkownika po UUID, publicId lub USR-xxx
+- **resolveUserIdentifier** - obsluguje UUID, publicId, USR-371, auth_id, user_id fallback
+- **POST /api/admin/push/send** - dodano roles filtering i target object format
+- **GET /api/stats/users-count** - publiczny endpoint dla landing page
+- **Export** - dodano kolumne `id` (UUID) do eksportu CSV/XLSX
+- **send-invite** - 404 zwraca details z param, lepsze logowanie (bez hasel)
+
+### v2.3.0 (2025-01-12)
+- IMPROVED POST /api/admin/push/send - dodano plans i sendToAll
+- IMPROVED logout - czyści 3 cookies, zwraca frontendAction
+- IMPROVED GET /api/admin/stats - dodano maxPublicId + 30s cache
