@@ -1,0 +1,28 @@
+You are working in the existing GitHub repo "BabaTVBackend" (Node.js/Express + Supabase). Goal: ship a production hotfix so the live admin panel on https://www.babatv24.com works.
+
+Hard requirements (must match API docs v2.3.x):
+- Endpoint POST /api/admin/users/:id/send-invite must accept :id as UUID (with hyphens), UUID (without hyphens), publicId numeric, and USR-<publicId>. API_REFERENCE v2.3.1 states this. Return 404 only if user truly does not exist. Return JSON { success: true, ... } on success.
+- Fix current bug: send-invite returns 404 "User not found" even though users exist. Root cause is likely lookup mismatch between DB columns public_id vs publicId or inconsistent resolver. Implement a single shared resolver used by GET /api/admin/users/:id and POST /api/admin/users/:id/send-invite.
+- Implement robust user lookup:
+  1) normalize param (USR-### -> ###, numeric -> publicId, UUID w/ or w/o hyphens -> hyphenated)
+  2) if UUID: query users by id
+  3) if publicId: query users by (public_id OR publicId) to support dual-write schema
+  4) never silently swallow Supabase errors—log them and return 500 with details.
+- Endpoint POST /api/admin/push/send must accept payload:
+  { title, body, sendToAll?, userIds?, publicIds?, plans?, roles?, deeplink? }
+  Validate that title and body exist. Add backward-compatible aliases: message->body, subject->title.
+  Return 200 with { success:true, sentCount, targets }.
+- Ensure CORS allows https://www.babatv24.com and https://babatv24.com.
+- Add clear server logs for send-invite and push: normalized param, query path used (uuid/publicId), and whether user found.
+- Security: keep existing JWT auth middleware for /api/admin/*.
+
+Implementation steps:
+1) Locate routes/controllers for admin users and send-invite. Identify current lookup logic; refactor into a shared helper: resolveUserParam + fetchUserByParam.
+2) Update send-invite to use shared helper. Ensure it finds the user row even if DB uses public_id (snake) and the app uses publicId (camel).
+3) Update push admin endpoint validation and alias mapping.
+4) Add small integration tests (or a minimal script) for resolver: UUID hyphenated, UUID non-hyphenated, 370, USR-370.
+5) Run npm test/build and ensure server boots.
+
+Output:
+- Provide the exact modified files and code changes.
+- Ensure endpoints work with the production base URL https://babatvbackend.onrender.com.

@@ -77,6 +77,10 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-13**: HOTFIX v2.3.1 - Production fix for send-invite and push/send
+- **2025-01-13**: IMPROVED findUserByIdentifier - UUID normalization (with/without hyphens), detailed logging
+- **2025-01-13**: IMPROVED push/send - aliases: subject→title, message→body, deep_link→deeplink
+- **2025-01-13**: IMPROVED send-invite - detailed 404 response with searchedBy/searchedValue
 - **2025-01-13**: Added GET /api/admin/users/:id - pobiera uzytkownika po UUID/publicId/USR-xxx
 - **2025-01-13**: IMPROVED resolveUserIdentifier - dodano auth_id, user_id fallback, format USR-xxx
 - **2025-01-13**: IMPROVED push/send - dodano roles filtering i target object format

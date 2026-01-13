@@ -120,40 +120,54 @@ const findUserByIdentifier = async (supabase, identifier) => {
   const selectFields = "id, email, public_id, external_id, auth_id, user_id, firstName, first_name, lastName, last_name, phone, role, plan, accessStatus, access_status, refCode, ref_code, expiresAt, expires_at, mustChangePassword, must_change_password, createdAt, created_at, updatedAt, updated_at";
   
   if (identifier.by === "id") {
-    const { data: user } = await supabase
+    // Normalize UUID: add hyphens if missing
+    let uuidValue = identifier.value;
+    if (uuidValue.length === 32 && !uuidValue.includes("-")) {
+      uuidValue = `${uuidValue.slice(0,8)}-${uuidValue.slice(8,12)}-${uuidValue.slice(12,16)}-${uuidValue.slice(16,20)}-${uuidValue.slice(20)}`;
+    }
+    
+    console.info(`[ADMIN] findUserByIdentifier: searching by id="${uuidValue}"`);
+    const { data: user, error: err1 } = await supabase
       .from(USERS_TABLE)
       .select(selectFields)
-      .eq("id", identifier.value)
+      .eq("id", uuidValue)
       .maybeSingle();
     
+    if (err1) console.error(`[ADMIN] findUserByIdentifier id lookup error:`, err1.message);
     if (user) return { user, resolvedBy: "id" };
     
-    const { data: byAuthId } = await supabase
+    console.info(`[ADMIN] findUserByIdentifier: not found by id, trying auth_id`);
+    const { data: byAuthId, error: err2 } = await supabase
       .from(USERS_TABLE)
       .select(selectFields)
-      .eq("auth_id", identifier.value)
+      .eq("auth_id", uuidValue)
       .maybeSingle();
     
+    if (err2) console.error(`[ADMIN] findUserByIdentifier auth_id lookup error:`, err2.message);
     if (byAuthId) return { user: byAuthId, resolvedBy: "auth_id" };
     
-    const { data: byUserId } = await supabase
+    console.info(`[ADMIN] findUserByIdentifier: not found by auth_id, trying user_id`);
+    const { data: byUserId, error: err3 } = await supabase
       .from(USERS_TABLE)
       .select(selectFields)
-      .eq("user_id", identifier.value)
+      .eq("user_id", uuidValue)
       .maybeSingle();
     
+    if (err3) console.error(`[ADMIN] findUserByIdentifier user_id lookup error:`, err3.message);
     if (byUserId) return { user: byUserId, resolvedBy: "user_id" };
     
     return null;
   }
   
   if (identifier.by === "public_id") {
-    const { data: user } = await supabase
+    console.info(`[ADMIN] findUserByIdentifier: searching by public_id=${identifier.value}`);
+    const { data: user, error: err } = await supabase
       .from(USERS_TABLE)
       .select(selectFields)
       .eq("public_id", identifier.value)
       .maybeSingle();
     
+    if (err) console.error(`[ADMIN] findUserByIdentifier public_id lookup error:`, err.message);
     if (user) return { user, resolvedBy: "public_id" };
     return null;
   }
@@ -1371,14 +1385,23 @@ admin.post("/users/:id/send-invite", async (c) => {
       return c.json({ success: false, error: "Invalid userId format", details: { param: userId } }, 400);
     }
 
-    const result = await findUserByIdentifier(supabase, identifier);
+    console.info(`[ADMIN] send-invite: looking up user with identifier: by=${identifier.by}, value=${identifier.value}`);
+    
+    let result;
+    try {
+      result = await findUserByIdentifier(supabase, identifier);
+    } catch (dbError) {
+      console.error(`[ADMIN] send-invite DB lookup error:`, dbError.message);
+      return c.json({ success: false, error: "Database lookup failed", details: { message: dbError.message } }, 500);
+    }
 
     if (!result) {
-      return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
+      console.warn(`[ADMIN] send-invite: User not found for param=${userId}, by=${identifier.by}, value=${identifier.value}`);
+      return c.json({ success: false, error: "User not found", details: { param: userId, searchedBy: identifier.by, searchedValue: identifier.value } }, 404);
     }
 
     const user = result.user;
-    console.info(`[ADMIN] send-invite: param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${user.public_id}`);
+    console.info(`[ADMIN] send-invite: FOUND user param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${user.public_id}, uuid=${user.id}`);
 
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -1669,7 +1692,12 @@ admin.post("/push/send", async (c) => {
   console.info("[ADMIN] POST /api/admin/push/send called");
   try {
     const body = await c.req.json();
-    const { title, body: msgBody, deeplink, target } = body;
+    const { target } = body;
+    
+    // Backward-compatible aliases: subject->title, message->body
+    const title = body.title || body.subject;
+    const msgBody = body.body || body.message;
+    const deeplink = body.deeplink || body.deep_link || body.link;
     
     const userIds = body.userIds || target?.userIds || [];
     const publicIds = body.publicIds || target?.publicIds || [];
@@ -1677,8 +1705,10 @@ admin.post("/push/send", async (c) => {
     const roles = body.roles || target?.roles || [];
     const sendToAll = body.sendToAll ?? target?.all ?? false;
 
+    console.info(`[ADMIN] push/send params: title="${title}", body="${msgBody?.substring(0, 50)}...", sendToAll=${sendToAll}, plans=${JSON.stringify(plans)}, roles=${JSON.stringify(roles)}`);
+
     if (!title || !msgBody) {
-      return c.json({ success: false, error: "title and body are required" }, 400);
+      return c.json({ success: false, error: "title and body are required (aliases: subject, message)" }, 400);
     }
 
     const supabase = getSupabaseClient();

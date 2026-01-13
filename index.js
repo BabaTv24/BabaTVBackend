@@ -48,7 +48,7 @@ app.get("/", (c) => {
   return c.json({
     status: "OK",
     message: "BabaTV24 Backend ULTRA-PRO SECURITY",
-    version: "2.3.0",
+    version: "2.3.1",
     frontend: "https://www.babatv24.com",
     environment: process.env.NODE_ENV || "production",
     endpoints: {
