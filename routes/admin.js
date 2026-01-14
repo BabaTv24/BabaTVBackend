@@ -88,22 +88,103 @@ const generateRefCode = (length = 10) => {
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 const UUID_REGEX = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+const UUID_NO_DASHES_REGEX = /^[0-9a-f]{32}$/i;
 const USR_PREFIX_REGEX = /^USR-?(\d+)$/i;
 
+const SELECT_USER_FIELDS = "id, email, public_id, external_id, auth_id, user_id, firstName, first_name, lastName, last_name, phone, role, plan, accessStatus, access_status, refCode, ref_code, expiresAt, expires_at, mustChangePassword, must_change_password, createdAt, created_at, updatedAt, updated_at";
+
+/**
+ * Shared function for user lookup by param.
+ * Supports: UUID with dashes, UUID without dashes, numeric publicId, USR-<publicId>
+ * Uses columns: id (uuid PK), public_id (numeric)
+ * @param {object} supabase - Supabase client
+ * @param {string} param - User identifier
+ * @returns {Promise<{user: object, resolvedBy: string}|null>}
+ */
+const resolveUserByParam = async (supabase, param) => {
+  if (!supabase || !param || typeof param !== "string") {
+    return null;
+  }
+  
+  const trimmed = param.trim();
+  let resolvedBy = null;
+  let searchValue = null;
+  let searchColumn = null;
+  
+  // 1. Check USR-<publicId> format first
+  const usrMatch = trimmed.match(USR_PREFIX_REGEX);
+  if (usrMatch) {
+    resolvedBy = "usr";
+    searchColumn = "public_id";
+    searchValue = parseInt(usrMatch[1], 10);
+  }
+  // 2. Check UUID without dashes (32 hex chars)
+  else if (UUID_NO_DASHES_REGEX.test(trimmed)) {
+    resolvedBy = "uuid_no_dashes";
+    searchColumn = "id";
+    // Convert to UUID with dashes
+    searchValue = `${trimmed.slice(0,8)}-${trimmed.slice(8,12)}-${trimmed.slice(12,16)}-${trimmed.slice(16,20)}-${trimmed.slice(20)}`.toLowerCase();
+  }
+  // 3. Check UUID with dashes
+  else if (UUID_REGEX.test(trimmed)) {
+    resolvedBy = "id";
+    searchColumn = "id";
+    searchValue = trimmed.toLowerCase();
+  }
+  // 4. Check numeric publicId
+  else {
+    const num = Number(trimmed);
+    if (Number.isFinite(num) && num > 0 && Number.isInteger(num)) {
+      resolvedBy = "public_id";
+      searchColumn = "public_id";
+      searchValue = num;
+    }
+  }
+  
+  if (!searchColumn || searchValue === null) {
+    console.info(`[ADMIN] resolveUserByParam: invalid param="${param}"`);
+    return null;
+  }
+  
+  const { data: user, error } = await supabase
+    .from(USERS_TABLE)
+    .select(SELECT_USER_FIELDS)
+    .eq(searchColumn, searchValue)
+    .maybeSingle();
+  
+  const found = !!user;
+  console.info(`[ADMIN] send-invite lookup: param=${param}, resolvedBy=${resolvedBy}, found=${found}`);
+  
+  if (error) {
+    console.error(`[ADMIN] resolveUserByParam DB error:`, error.message);
+  }
+  
+  if (user) {
+    return { user, resolvedBy };
+  }
+  
+  return null;
+};
+
+// Legacy aliases for backward compatibility
 const resolveUserIdentifier = (param) => {
   if (!param || typeof param !== "string") {
     return { by: null, value: null, original: param };
   }
   const trimmed = param.trim();
   
-  if (UUID_REGEX.test(trimmed)) {
-    return { by: "id", value: trimmed, original: param };
-  }
-  
   const usrMatch = trimmed.match(USR_PREFIX_REGEX);
   if (usrMatch) {
-    const num = parseInt(usrMatch[1], 10);
-    return { by: "public_id", value: num, original: param };
+    return { by: "public_id", value: parseInt(usrMatch[1], 10), original: param };
+  }
+  
+  if (UUID_NO_DASHES_REGEX.test(trimmed)) {
+    const normalized = `${trimmed.slice(0,8)}-${trimmed.slice(8,12)}-${trimmed.slice(12,16)}-${trimmed.slice(16,20)}-${trimmed.slice(20)}`.toLowerCase();
+    return { by: "id", value: normalized, original: param };
+  }
+  
+  if (UUID_REGEX.test(trimmed)) {
+    return { by: "id", value: trimmed.toLowerCase(), original: param };
   }
   
   const num = Number(trimmed);
@@ -117,61 +198,14 @@ const resolveUserIdentifier = (param) => {
 const findUserByIdentifier = async (supabase, identifier) => {
   if (!supabase || !identifier.by) return null;
   
-  const selectFields = "id, email, public_id, external_id, auth_id, user_id, firstName, first_name, lastName, last_name, phone, role, plan, accessStatus, access_status, refCode, ref_code, expiresAt, expires_at, mustChangePassword, must_change_password, createdAt, created_at, updatedAt, updated_at";
+  const { data: user, error } = await supabase
+    .from(USERS_TABLE)
+    .select(SELECT_USER_FIELDS)
+    .eq(identifier.by, identifier.value)
+    .maybeSingle();
   
-  if (identifier.by === "id") {
-    // Normalize UUID: add hyphens if missing
-    let uuidValue = identifier.value;
-    if (uuidValue.length === 32 && !uuidValue.includes("-")) {
-      uuidValue = `${uuidValue.slice(0,8)}-${uuidValue.slice(8,12)}-${uuidValue.slice(12,16)}-${uuidValue.slice(16,20)}-${uuidValue.slice(20)}`;
-    }
-    
-    console.info(`[ADMIN] findUserByIdentifier: searching by id="${uuidValue}"`);
-    const { data: user, error: err1 } = await supabase
-      .from(USERS_TABLE)
-      .select(selectFields)
-      .eq("id", uuidValue)
-      .maybeSingle();
-    
-    if (err1) console.error(`[ADMIN] findUserByIdentifier id lookup error:`, err1.message);
-    if (user) return { user, resolvedBy: "id" };
-    
-    console.info(`[ADMIN] findUserByIdentifier: not found by id, trying auth_id`);
-    const { data: byAuthId, error: err2 } = await supabase
-      .from(USERS_TABLE)
-      .select(selectFields)
-      .eq("auth_id", uuidValue)
-      .maybeSingle();
-    
-    if (err2) console.error(`[ADMIN] findUserByIdentifier auth_id lookup error:`, err2.message);
-    if (byAuthId) return { user: byAuthId, resolvedBy: "auth_id" };
-    
-    console.info(`[ADMIN] findUserByIdentifier: not found by auth_id, trying user_id`);
-    const { data: byUserId, error: err3 } = await supabase
-      .from(USERS_TABLE)
-      .select(selectFields)
-      .eq("user_id", uuidValue)
-      .maybeSingle();
-    
-    if (err3) console.error(`[ADMIN] findUserByIdentifier user_id lookup error:`, err3.message);
-    if (byUserId) return { user: byUserId, resolvedBy: "user_id" };
-    
-    return null;
-  }
-  
-  if (identifier.by === "public_id") {
-    console.info(`[ADMIN] findUserByIdentifier: searching by public_id=${identifier.value}`);
-    const { data: user, error: err } = await supabase
-      .from(USERS_TABLE)
-      .select(selectFields)
-      .eq("public_id", identifier.value)
-      .maybeSingle();
-    
-    if (err) console.error(`[ADMIN] findUserByIdentifier public_id lookup error:`, err.message);
-    if (user) return { user, resolvedBy: "public_id" };
-    return null;
-  }
-  
+  if (error) console.error(`[ADMIN] findUserByIdentifier error:`, error.message);
+  if (user) return { user, resolvedBy: identifier.by };
   return null;
 };
 
@@ -1344,18 +1378,12 @@ admin.get("/users/:id", async (c) => {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
-    const identifier = resolveUserIdentifier(userId);
-    if (!identifier.by) {
-      return c.json({ success: false, error: "Invalid userId format", details: { param: userId } }, 400);
-    }
-
-    const result = await findUserByIdentifier(supabase, identifier);
+    // Use shared resolveUserByParam function
+    const result = await resolveUserByParam(supabase, userId);
     
     if (!result) {
       return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
     }
-
-    console.info(`[ADMIN] User resolved: param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${result.user.public_id}`);
 
     return c.json({ 
       success: true, 
@@ -1380,28 +1408,14 @@ admin.post("/users/:id/send-invite", async (c) => {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
-    const identifier = resolveUserIdentifier(userId);
-    if (!identifier.by) {
-      return c.json({ success: false, error: "Invalid userId format", details: { param: userId } }, 400);
-    }
-
-    console.info(`[ADMIN] send-invite: looking up user with identifier: by=${identifier.by}, value=${identifier.value}`);
-    
-    let result;
-    try {
-      result = await findUserByIdentifier(supabase, identifier);
-    } catch (dbError) {
-      console.error(`[ADMIN] send-invite DB lookup error:`, dbError.message);
-      return c.json({ success: false, error: "Database lookup failed", details: { message: dbError.message } }, 500);
-    }
+    // Use shared resolveUserByParam function
+    const result = await resolveUserByParam(supabase, userId);
 
     if (!result) {
-      console.warn(`[ADMIN] send-invite: User not found for param=${userId}, by=${identifier.by}, value=${identifier.value}`);
-      return c.json({ success: false, error: "User not found", details: { param: userId, searchedBy: identifier.by, searchedValue: identifier.value } }, 404);
+      return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
     }
 
     const user = result.user;
-    console.info(`[ADMIN] send-invite: FOUND user param=${userId}, resolvedBy=${result.resolvedBy}, publicId=${user.public_id}, uuid=${user.id}`);
 
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -1694,9 +1708,9 @@ admin.post("/push/send", async (c) => {
     const body = await c.req.json();
     const { target } = body;
     
-    // Backward-compatible aliases: subject->title, message->body
+    // Backward-compatible aliases: subject->title, message/content->body
     const title = body.title || body.subject;
-    const msgBody = body.body || body.message;
+    const msgBody = body.body ?? body.message ?? body.content;
     const deeplink = body.deeplink || body.deep_link || body.link;
     
     const userIds = body.userIds || target?.userIds || [];
@@ -1705,10 +1719,10 @@ admin.post("/push/send", async (c) => {
     const roles = body.roles || target?.roles || [];
     const sendToAll = body.sendToAll ?? target?.all ?? false;
 
-    console.info(`[ADMIN] push/send params: title="${title}", body="${msgBody?.substring(0, 50)}...", sendToAll=${sendToAll}, plans=${JSON.stringify(plans)}, roles=${JSON.stringify(roles)}`);
+    console.info(`[ADMIN] push/send params: title="${title}", body="${msgBody?.substring(0, 50) || ""}...", sendToAll=${sendToAll}, plans=${JSON.stringify(plans)}, roles=${JSON.stringify(roles)}`);
 
     if (!title || !msgBody) {
-      return c.json({ success: false, error: "title and body are required (aliases: subject, message)" }, 400);
+      return c.json({ success: false, error: "title and body are required" }, 400);
     }
 
     const supabase = getSupabaseClient();
