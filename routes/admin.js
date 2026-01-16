@@ -905,20 +905,21 @@ const handleUserUpdate = async (c) => {
     const lastName = body.lastName || body.last_name;
     const accessStatus = body.accessStatus || body.access_status;
     
-    const updatePayload = { updated_at: now, updatedAt: now };
+    // DB columns are snake_case only
+    const updatePayload = { updated_at: now };
     
     if (body.email) updatePayload.email = body.email;
-    if (firstName) { updatePayload.firstName = firstName; updatePayload.first_name = firstName; }
-    if (lastName) { updatePayload.lastName = lastName; updatePayload.last_name = lastName; }
+    if (firstName) updatePayload.first_name = firstName;
+    if (lastName) updatePayload.last_name = lastName;
     if (body.phone !== undefined) updatePayload.phone = body.phone;
     if (body.address !== undefined) updatePayload.address = body.address;
     if (body.city !== undefined) updatePayload.city = body.city;
     if (body.country !== undefined) updatePayload.country = body.country;
-    if (body.postalCode !== undefined) { updatePayload.postalCode = body.postalCode; updatePayload.postal_code = body.postalCode; }
-    if (body.bankAccount !== undefined) { updatePayload.bankAccount = body.bankAccount; updatePayload.bank_account = body.bankAccount; }
+    if (body.postalCode !== undefined) updatePayload.postal_code = body.postalCode;
+    if (body.bankAccount !== undefined) updatePayload.bank_account = body.bankAccount;
     if (body.role) updatePayload.role = normalizeRole(body.role);
     if (body.plan !== undefined) updatePayload.plan = body.plan;
-    if (accessStatus !== undefined) { updatePayload.accessStatus = accessStatus; updatePayload.access_status = accessStatus; }
+    if (accessStatus !== undefined) updatePayload.access_status = accessStatus;
 
     const { data, error } = await supabase
       .from(USERS_TABLE)
@@ -973,7 +974,7 @@ admin.patch("/users/:id/role", async (c) => {
     const now = new Date().toISOString();
     const { data, error } = await supabase
       .from(USERS_TABLE)
-      .update({ role: normalizedRole, updated_at: now, updatedAt: now })
+      .update({ role: normalizedRole, updated_at: now })
       .eq("id", id)
       .select("*")
       .single();
@@ -1308,20 +1309,18 @@ admin.post("/users/:id/send-invite", async (c) => {
     const refLink = `${APP_URL}/?ref=${encodeURIComponent(refCode)}`;
 
     const now = new Date().toISOString();
+    // DB columns are snake_case only - no camelCase fields
+    const updateData = {
+      password_hash,
+      must_change_password: true,
+      access_status: "active",
+      external_id: refCode,
+      ref_code: refCode,
+      updated_at: now
+    };
     const { error: updateError } = await supabase
       .from(USERS_TABLE)
-      .update({ 
-        password_hash, 
-        must_change_password: true, 
-        mustChangePassword: true,
-        access_status: "active",
-        accessStatus: "active",
-        external_id: refCode,
-        ref_code: refCode,
-        refCode: refCode,
-        updated_at: now, 
-        updatedAt: now 
-      })
+      .update(updateData)
       .eq("id", user.id);
 
     if (updateError) {
@@ -1515,18 +1514,15 @@ admin.post("/users/import", async (c) => {
         .eq("email", email)
         .maybeSingle();
 
+      // DB columns are snake_case only
       const userData = {
         email,
-        firstName: row.firstName || row.first_name || "",
         first_name: row.firstName || row.first_name || "",
-        lastName: row.lastName || row.last_name || "",
         last_name: row.lastName || row.last_name || "",
         plan: row.plan || "VIP",
         role: normalizeRole(row.role) || "user",
-        accessStatus: normalizeAccessStatus(row.accessStatus || row.access_status) || "active",
         access_status: normalizeAccessStatus(row.accessStatus || row.access_status) || "active",
-        updated_at: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updated_at: new Date().toISOString()
       };
 
       if (existing) {
@@ -1548,12 +1544,9 @@ admin.post("/users/import", async (c) => {
         const insertData = {
           ...userData,
           password_hash,
-          refCode,
           ref_code: refCode,
           must_change_password: true,
-          mustChangePassword: true,
-          created_at: new Date().toISOString(),
-          createdAt: new Date().toISOString()
+          created_at: new Date().toISOString()
         };
 
         const { error: insError } = await supabase
@@ -1592,11 +1585,14 @@ admin.post("/push/send", async (c) => {
     const msgBody = body.body ?? body.message ?? body.content;
     const deeplink = body.deeplink || body.deep_link || body.link;
     
-    const userIds = body.userIds || target?.userIds || [];
-    const publicIds = body.publicIds || target?.publicIds || [];
-    const plans = body.plans || target?.plans || [];
-    const roles = body.roles || target?.roles || [];
-    const sendToAll = body.sendToAll ?? target?.all ?? false;
+    // Support multiple naming variations for userIds/publicIds
+    const userIds = body.userIds ?? body.user_ids ?? body.usersIds ?? 
+      target?.userIds ?? target?.user_ids ?? target?.usersIds ?? [];
+    const publicIds = body.publicIds ?? body.public_ids ?? body.publicIDs ?? 
+      target?.publicIds ?? target?.public_ids ?? target?.publicIDs ?? [];
+    const plans = body.plans ?? target?.plans ?? [];
+    const roles = body.roles ?? target?.roles ?? [];
+    const sendToAll = body.sendToAll ?? body.send_to_all ?? target?.all ?? target?.sendToAll ?? false;
 
     console.info(`[ADMIN] push/send params: title="${title}", body="${msgBody?.substring(0, 50) || ""}...", sendToAll=${sendToAll}, plans=${JSON.stringify(plans)}, roles=${JSON.stringify(roles)}`);
 
@@ -1664,7 +1660,7 @@ admin.post("/push/send", async (c) => {
       }
     }
 
-    targetUserIds = [...new Set(targetUserIds)];
+    targetUserIds = [...new Set(targetUserIds.filter(Boolean))];
 
     const isBroadcast = targetUserIds.length === 0 && plans.length === 0 && roles.length === 0;
 

@@ -1,0 +1,55 @@
+TASK: Fix production bugs in BabaTVBackend (Hono routes). 
+Current errors:
+- POST /api/admin/users/:id/send-invite returns 500 DB update failed: "Could not find the 'mustChangePassword' column of 'users' in the schema cache"
+- push/send works but UI often shows "sent to 0 users" even when userIds selected.
+
+GOAL:
+1) Ensure ALL Supabase .insert()/.update() write ONLY REAL DB columns (snake_case) – NEVER camelCase fields.
+2) send-invite must update: password_hash, must_change_password, access_status, external_id, ref_code, updated_at (snake_case only). Do NOT write mustChangePassword/accessStatus/refCode/updatedAt.
+3) Improve push/send body parsing to accept userIds variations: userIds, user_ids, usersIds, target.userIds, target.usersIds; same for publicIds/plans/roles. If userIds provided, return targetCount=userIds.length (unique).
+4) Keep API responses in camelCase if desired, BUT DB writes must be snake_case only.
+
+IMPLEMENTATION DETAILS:
+A) In routes/admin.js inside admin.post("/users/:id/send-invite"...):
+- Replace the .update({...}) payload with updateData that contains ONLY snake_case columns.
+- Keep "generatedPassword" behavior as it is (returned only when email not sent).
+
+Use exactly this update snippet:
+
+const updateData = {
+  password_hash,
+  must_change_password: true,
+  access_status: "active",
+  external_id: refCode,
+  ref_code: refCode,
+  updated_at: now
+};
+
+Then:
+await supabase.from(USERS_TABLE).update(updateData).eq("id", user.id);
+
+B) In the same file admin.post("/push/send"...):
+- Parse title/body as currently, but fix userIds/publicIds read:
+const userIds =
+  body.userIds ?? body.user_ids ?? body.usersIds ??
+  target?.userIds ?? target?.user_ids ?? target?.usersIds ?? [];
+const publicIds =
+  body.publicIds ?? body.public_ids ?? body.publicIDs ??
+  target?.publicIds ?? target?.public_ids ?? target?.publicIDs ?? [];
+Also accept sendToAll as: body.sendToAll ?? target?.all ?? target?.sendToAll ?? false
+- Make targetUserIds unique and always count correctly:
+targetUserIds = [...new Set(targetUserIds.filter(Boolean))];
+
+If userIds exists and >0, return mode "targeted" and targetCount = targetUserIds.length.
+
+C) Search the codebase for these camelCase DB-write fields and remove from Supabase writes:
+mustChangePassword, accessStatus, refCode, updatedAt, createdAt, firstName, lastName (only if those are not DB columns).
+Keep DB columns snake_case: first_name, last_name, created_at, updated_at, etc.
+
+D) After modifications, run app locally and ensure:
+- send-invite returns 200 with success true (even if emailSent false, it must return generatedPassword)
+- push/send returns targetCount > 0 when userIds provided.
+
+Deliver output:
+- show exact file changes (diff or full updated functions)
+- confirm no remaining camelCase fields in Supabase .update/.insert payloads
