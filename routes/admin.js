@@ -8,6 +8,7 @@ import { authMiddleware } from "../middleware/authMiddleware.js";
 import { rateLimiter, bruteForceLimiter, protectReplay, secureLog } from "../middleware/security.js";
 import { userMeta, ads, coupons, testimonials, chats, videoLoop, generateId } from "../utils/dataStore.js";
 import { createClient } from "../utils/supabase.js";
+import { resolveUserByParam } from "../utils/resolveUserByParam.js";
 
 const APP_URL = process.env.APP_URL || "https://babatv24.com";
 const SMTP_HOST = process.env.SMTP_HOST;
@@ -86,128 +87,6 @@ const generateRefCode = (length = 10) => {
 };
 
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-
-const UUID_REGEX = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
-const UUID_NO_DASHES_REGEX = /^[0-9a-f]{32}$/i;
-const USR_PREFIX_REGEX = /^USR-?(\d+)$/i;
-
-const SELECT_USER_FIELDS = "id, email, public_id, external_id, auth_id, user_id, firstName, first_name, lastName, last_name, phone, role, plan, accessStatus, access_status, refCode, ref_code, expiresAt, expires_at, mustChangePassword, must_change_password, createdAt, created_at, updatedAt, updated_at";
-
-/**
- * Shared function for user lookup by param.
- * Supports: UUID with dashes, UUID without dashes, numeric publicId, USR-<publicId>
- * Uses columns: id (uuid PK), public_id (numeric)
- * @param {object} supabase - Supabase client
- * @param {string} param - User identifier
- * @returns {Promise<{user: object, resolvedBy: string}|null>}
- */
-const resolveUserByParam = async (supabase, param) => {
-  if (!supabase || !param || typeof param !== "string") {
-    return null;
-  }
-  
-  const trimmed = param.trim();
-  let resolvedBy = null;
-  let searchValue = null;
-  let searchColumn = null;
-  
-  // 1. Check USR-<publicId> format first
-  const usrMatch = trimmed.match(USR_PREFIX_REGEX);
-  if (usrMatch) {
-    resolvedBy = "usr";
-    searchColumn = "public_id";
-    searchValue = parseInt(usrMatch[1], 10);
-  }
-  // 2. Check UUID without dashes (32 hex chars)
-  else if (UUID_NO_DASHES_REGEX.test(trimmed)) {
-    resolvedBy = "uuid_no_dashes";
-    searchColumn = "id";
-    // Convert to UUID with dashes
-    searchValue = `${trimmed.slice(0,8)}-${trimmed.slice(8,12)}-${trimmed.slice(12,16)}-${trimmed.slice(16,20)}-${trimmed.slice(20)}`.toLowerCase();
-  }
-  // 3. Check UUID with dashes
-  else if (UUID_REGEX.test(trimmed)) {
-    resolvedBy = "id";
-    searchColumn = "id";
-    searchValue = trimmed.toLowerCase();
-  }
-  // 4. Check numeric publicId
-  else {
-    const num = Number(trimmed);
-    if (Number.isFinite(num) && num > 0 && Number.isInteger(num)) {
-      resolvedBy = "public_id";
-      searchColumn = "public_id";
-      searchValue = num;
-    }
-  }
-  
-  if (!searchColumn || searchValue === null) {
-    console.info(`[ADMIN] resolveUserByParam: invalid param="${param}"`);
-    return null;
-  }
-  
-  const { data: user, error } = await supabase
-    .from(USERS_TABLE)
-    .select(SELECT_USER_FIELDS)
-    .eq(searchColumn, searchValue)
-    .maybeSingle();
-  
-  const found = !!user;
-  console.info(`[ADMIN] send-invite lookup: param=${param}, resolvedBy=${resolvedBy}, found=${found}`);
-  
-  if (error) {
-    console.error(`[ADMIN] resolveUserByParam DB error:`, error.message);
-  }
-  
-  if (user) {
-    return { user, resolvedBy };
-  }
-  
-  return null;
-};
-
-// Legacy aliases for backward compatibility
-const resolveUserIdentifier = (param) => {
-  if (!param || typeof param !== "string") {
-    return { by: null, value: null, original: param };
-  }
-  const trimmed = param.trim();
-  
-  const usrMatch = trimmed.match(USR_PREFIX_REGEX);
-  if (usrMatch) {
-    return { by: "public_id", value: parseInt(usrMatch[1], 10), original: param };
-  }
-  
-  if (UUID_NO_DASHES_REGEX.test(trimmed)) {
-    const normalized = `${trimmed.slice(0,8)}-${trimmed.slice(8,12)}-${trimmed.slice(12,16)}-${trimmed.slice(16,20)}-${trimmed.slice(20)}`.toLowerCase();
-    return { by: "id", value: normalized, original: param };
-  }
-  
-  if (UUID_REGEX.test(trimmed)) {
-    return { by: "id", value: trimmed.toLowerCase(), original: param };
-  }
-  
-  const num = Number(trimmed);
-  if (Number.isFinite(num) && num > 0 && Number.isInteger(num)) {
-    return { by: "public_id", value: num, original: param };
-  }
-  
-  return { by: null, value: null, original: param };
-};
-
-const findUserByIdentifier = async (supabase, identifier) => {
-  if (!supabase || !identifier.by) return null;
-  
-  const { data: user, error } = await supabase
-    .from(USERS_TABLE)
-    .select(SELECT_USER_FIELDS)
-    .eq(identifier.by, identifier.value)
-    .maybeSingle();
-  
-  if (error) console.error(`[ADMIN] findUserByIdentifier error:`, error.message);
-  if (user) return { user, resolvedBy: identifier.by };
-  return null;
-};
 
 const normalizeUserResponse = (user) => {
   if (!user) return user;
@@ -1378,8 +1257,8 @@ admin.get("/users/:id", async (c) => {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
-    // Use shared resolveUserByParam function
-    const result = await resolveUserByParam(supabase, userId);
+    // Use shared resolveUserByParam function from utils
+    const result = await resolveUserByParam(supabase, USERS_TABLE, userId);
     
     if (!result) {
       return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
@@ -1408,8 +1287,8 @@ admin.post("/users/:id/send-invite", async (c) => {
       return c.json({ success: false, error: "Database not configured" }, 500);
     }
 
-    // Use shared resolveUserByParam function
-    const result = await resolveUserByParam(supabase, userId);
+    // Use shared resolveUserByParam function from utils
+    const result = await resolveUserByParam(supabase, USERS_TABLE, userId);
 
     if (!result) {
       return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
