@@ -1298,7 +1298,11 @@ admin.post("/users/:id/send-invite", async (c) => {
   
   try {
     const userId = c.req.param("id");
+    
+    // LOG: before user lookup
     console.info(`[ADMIN] POST /api/admin/users/${userId}/send-invite from IP=${ip}`);
+    console.info(`[ADMIN] send-invite: looking up user by param="${userId}"`);
+    
     const supabase = getSupabaseClient();
 
     if (!supabase) {
@@ -1309,25 +1313,29 @@ admin.post("/users/:id/send-invite", async (c) => {
     const result = await resolveUserByParam(supabase, USERS_TABLE, userId);
 
     if (!result) {
+      console.warn(`[ADMIN] send-invite: user NOT FOUND for param="${userId}"`);
       return c.json({ success: false, error: "User not found", details: { param: userId } }, 404);
     }
 
     const user = result.user;
+    
+    // LOG: after resolveUserByParam - found user
+    console.info(`[ADMIN] send-invite: FOUND user.id=${user.id}, public_id=${user.public_id}, resolvedBy=${result.resolvedBy}`);
 
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
-    // Use existing ref_code or generate new one
+    // Use existing ref_code or generate new one using buildRefCode helper
     let refCode = user.ref_code || user.refCode || user.external_id;
     if (!refCode) {
       refCode = buildRefCode(user.public_id);
+      console.info(`[ADMIN] send-invite: generated new refCode=${refCode}`);
     }
+    // Build refLink using APP_URL
     const refLink = buildRefLink(refCode);
-    
-    console.info(`[ADMIN] send-invite: user.id=${user.id}, public_id=${user.public_id}, refCode=${refCode}`);
 
     const now = new Date().toISOString();
-    // DB columns are snake_case only - no camelCase fields
+    // DB columns are snake_case ONLY - no camelCase fields allowed
     const updateData = {
       password_hash,
       must_change_password: true,
@@ -1336,14 +1344,23 @@ admin.post("/users/:id/send-invite", async (c) => {
       ref_code: refCode,
       updated_at: now
     };
+    
+    // LOG: before update - list of snake_case fields being updated
+    console.info(`[ADMIN] send-invite: updating DB with columns: ${Object.keys(updateData).join(", ")}`);
+    
     const { error: updateError } = await supabase
       .from(USERS_TABLE)
       .update(updateData)
       .eq("id", user.id);
 
     if (updateError) {
+      // LOG: after update - error
+      console.error(`[ADMIN] send-invite: DB UPDATE FAILED for user.id=${user.id}: ${updateError.message}`);
       return c.json({ success: false, error: "DB update failed", details: updateError.message }, 500);
     }
+    
+    // LOG: after update - success
+    console.info(`[ADMIN] send-invite: DB UPDATE SUCCESS for user.id=${user.id}`)
 
     const userEmail = user.email;
     const firstName = user.firstName || user.first_name || "";
@@ -1352,6 +1369,13 @@ admin.post("/users/:id/send-invite", async (c) => {
 
     const transporter = getMailTransporter();
     let emailSent = false;
+
+    // LOG: SMTP configuration status
+    if (!transporter) {
+      console.warn(`[ADMIN] send-invite: SMTP NOT configured (SMTP_HOST=${process.env.SMTP_HOST ? "set" : "missing"})`);
+    } else {
+      console.info(`[ADMIN] send-invite: SMTP configured, attempting to send email to ${userEmail}`);
+    }
 
     if (transporter) {
       const mailOptions = {
