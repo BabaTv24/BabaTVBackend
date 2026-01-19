@@ -1336,13 +1336,13 @@ admin.post("/users/:id/send-invite", async (c) => {
 
     const now = new Date().toISOString();
     // DB columns are snake_case ONLY - no camelCase fields allowed
-    // ONLY: password_hash, must_change_password, access_status, ref_code, updated_at
-    // REMOVED: external_id, mustChangePassword, accessStatus, refCode, updatedAt
+    // REMOVED: mustChangePassword, accessStatus, refCode, updatedAt (camelCase)
     const updateData = {
       password_hash,
       must_change_password: true,
       access_status: "active",
       ref_code: refCode,
+      external_id: refCode,
       updated_at: now
     };
     
