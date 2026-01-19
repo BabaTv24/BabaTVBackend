@@ -1559,11 +1559,16 @@ admin.post("/users/import", async (c) => {
         const password_hash = await bcrypt.hash(tempPassword, 10);
         const refCode = generateRefCode(10);
 
+        // Include sponsor_id and ebene for new users via import
         const insertData = {
           ...userData,
           password_hash,
           ref_code: refCode,
+          external_id: refCode,
           must_change_password: true,
+          sponsor_id: row.sponsor_id || row.sponsorId || DEFAULT_SPONSOR_ID,
+          ebene: row.ebene || 1,
+          source: "import",
           created_at: new Date().toISOString()
         };
 
@@ -1684,10 +1689,19 @@ admin.post("/push/send", async (c) => {
 
     if (isBroadcast) {
       console.info("[ADMIN] push/send - broadcast mode (no targets specified)");
+      let totalCount = 0;
+      if (supabase) {
+        const { count } = await supabase
+          .from(USERS_TABLE)
+          .select("*", { count: "exact", head: true });
+        totalCount = count || 0;
+      }
+      console.info(`[ADMIN] push/send - broadcast to ${totalCount} users`);
       return c.json({
         success: true,
         mode: "broadcast",
-        message: "Broadcast push notification queued",
+        message: `Broadcast push notification queued for ${totalCount} users`,
+        targetCount: totalCount,
         title,
         body: msgBody,
         deeplink: deeplink || null,

@@ -1,0 +1,53 @@
+You are working in an existing Node.js backend (Hono or Express-style routing) deployed on Render.
+Goal: produce a clean, scalable FIX release v2.3.2 that removes DB schema mismatches and fixes:
+- POST /api/admin/users/:id/send-invite (no more schema cache errors; update only existing snake_case columns)
+- POST /api/admin/push/send should return correct targetCount (even in broadcast mode), not "0 users"
+- Ensure new/created users always have sponsor_public_id=369 and ebene=1 unless explicitly set
+- Align code with Supabase schema: snake_case only (no mustChangePassword, accessStatus, refCode camelCase columns in DB writes)
+
+IMPORTANT RULES:
+1) Never write camelCase column names to Supabase. Only snake_case.
+2) Keep response JSON backward compatible: you may return both camelCase aliases in the RESPONSE, but DB writes MUST be snake_case only.
+3) Add strong logs for send-invite lookup and push targeting.
+4) Keep code modular: create a single "userRepo" helper for user lookup/update.
+
+Tasks:
+A) Locate admin routes file (likely routes/admin.js) and the send-invite handler.
+   - Replace the update() payload to Supabase so it ONLY updates:
+     password_hash, must_change_password, access_status, ref_code, updated_at
+   - Ensure you never reference mustChangePassword/accessStatus/refCode as DB columns.
+   - Still allow the RESPONSE to include refCode/refLink for frontend.
+
+B) Ensure resolveUserByParam(supabase, param) works with:
+   - uuid id (users.id)
+   - public_id (users.public_id, numeric)
+   It must return { user, resolvedBy } and log details.
+
+C) In user creation endpoints (admin create user + any public signup endpoint):
+   - enforce sponsor_public_id=369 default if missing
+   - enforce ebene=1 default if missing
+   - if user joins via ?ref=CODE, then:
+       - find owner user by ref_code=CODE
+       - set referred_by_public_id = owner.public_id
+       - set sponsor_public_id = owner.sponsor_public_id (or owner.public_id if you want sponsor == owner)
+       - set ebene = 2 (for referred users)
+     else:
+       - sponsor_public_id=369, ebene=1
+
+D) PUSH endpoint:
+   - If sendToAll true OR no targets specified (broadcast), compute targetCount from users table and return it.
+   - If targeted, compute and return correct targetCount based on resolved user IDs (dedupe).
+   - Do NOT claim delivery; only "queued", but count must be correct.
+
+E) SMTP:
+   - Keep nodemailer transporter, but improve logs:
+     - log when transporter is missing
+     - log SMTP_HOST presence (not the password)
+   - In response: if email not sent, return generatedPassword to admin (already exists).
+
+Deliverables:
+1) Code changes in appropriate files, with minimal diff and clean structure (helpers: userRepo.js / utils/userRepo.js)
+2) Ensure build passes and routes exist exactly:
+   POST /api/admin/users/:id/send-invite
+   POST /api/admin/push/send
+3) Update version string to 2.3.2
