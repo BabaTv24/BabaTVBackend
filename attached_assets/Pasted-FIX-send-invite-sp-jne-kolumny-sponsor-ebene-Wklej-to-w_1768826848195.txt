@@ -1,0 +1,48 @@
+FIX send-invite + spójne kolumny + sponsor/ebene
+
+Wklej to w Replit AI w projekcie backendu. To jest patch „bez gadania”, co dokładnie ma zmienić.
+
+PROMPT (Backend / Hono / routes/admin.js + helpers):
+
+Cel: Napraw POST /api/admin/users/:id/send-invite (błąd 500 schema cache) i ujednolić zapis do Supabase (tylko snake_case). Dodać logikę sponsor/ebene:
+
+Użytkownicy dodani ręcznie przez admina oraz z social reklam: sponsor_id=369, ebene=1
+
+Użytkownicy z reflinka: referred_by_public_id=<id polecającego>, sponsor_id=369, ebene=2 (lub 2+ w przyszłości)
+
+ref_code generowane i trzymane w users.ref_code (opcjonalnie skopiuj do external_id dla kompatybilności).
+
+Wymagania twarde:
+
+Usuń z update/insert WSZYSTKIE camelCase pola (mustChangePassword, accessStatus, updatedAt, refCode itp.). Zostają wyłącznie:
+first_name,last_name,access_status,must_change_password,password_hash,ref_code,external_id,sponsor_id,ebene,referred_by_public_id,plan,role,updated_at,created_at
+
+send-invite ma:
+
+znaleźć usera po UUID/public_id/USR-xxx
+
+wygenerować hasło, zapisać password_hash i must_change_password=true, ustawić access_status='active'
+
+wygenerować ref_code jeśli brak i zwrócić refLink
+
+jeśli SMTP brak/nie działa: zwróć generatedPassword w response (żeby admin mógł je skopiować)
+
+W POST /api/admin/users (tworzenie usera) ustaw domyślnie sponsor_id=369, ebene=1, access_status='inactive' chyba że body zawiera referredByPublicId => wtedy referred_by_public_id=<...>, ebene=2, sponsor_id=369.
+
+Dodaj czytelne logi serwera dla send-invite: param, resolvedBy, znaleziony user.id i user.public_id.
+
+Implementacja:
+
+Zrób helper normalizeUserPayload() i używaj go w create/update/import.
+
+Zrób helper buildRefCode(public_id) i buildRefLink(ref_code, APP_URL).
+
+Dopilnuj, aby Supabase .update() i .insert() nigdy nie zawierały nieistniejących kolumn.
+
+Wypluj pełny kod zmian (diff albo pełne pliki) dla:
+
+routes/admin.js
+
+(jeśli istnieje) utils/supabase.js lub helper resolveUserByParam
+
+(jeśli istnieje) routes/auth.js tylko jeśli trzeba do spójności kolumn (snake_case)

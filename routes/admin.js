@@ -86,105 +86,121 @@ const generateRefCode = (length = 10) => {
   return code;
 };
 
+// Default sponsor for admin-created and social ad users
+const DEFAULT_SPONSOR_ID = 369;
+
+// Build ref_code from public_id (e.g. "BABA-ABC123")
+const buildRefCode = (publicId) => {
+  if (!publicId) return generateRefCode(10);
+  const base = publicId.toString(36).toUpperCase();
+  return `BABA-${base}`;
+};
+
+// Build refLink from ref_code
+const buildRefLink = (refCode, appUrl = APP_URL) => {
+  if (!refCode) return null;
+  return `${appUrl}/?ref=${encodeURIComponent(refCode)}`;
+};
+
 const snakeToCamel = (str) => str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 
 const normalizeUserResponse = (user) => {
   if (!user) return user;
+  const refCode = user.ref_code || user.refCode || null;
   return {
     id: user.id,
     publicId: user.public_id || user.publicId || null,
     email: user.email,
-    firstName: user.firstName || user.first_name || null,
-    lastName: user.lastName || user.last_name || null,
+    firstName: user.first_name || user.firstName || null,
+    lastName: user.last_name || user.lastName || null,
     phone: user.phone || null,
     address: user.address || null,
     city: user.city || null,
     country: user.country || null,
-    postalCode: user.postalCode || user.postal_code || null,
-    bankAccount: user.bankAccount || user.bank_account || null,
-    facebookUrl: user.facebookUrl || user.facebook_url || null,
-    instagramUrl: user.instagramUrl || user.instagram_url || null,
-    linkedinUrl: user.linkedinUrl || user.linkedin_url || null,
-    tiktokUrl: user.tiktokUrl || user.tiktok_url || null,
-    twitterUrl: user.twitterUrl || user.twitter_url || null,
-    youtubeUrl: user.youtubeUrl || user.youtube_url || null,
+    postalCode: user.postal_code || user.postalCode || null,
+    bankAccount: user.bank_account || user.bankAccount || null,
+    facebookUrl: user.facebook_url || user.facebookUrl || null,
+    instagramUrl: user.instagram_url || user.instagramUrl || null,
+    linkedinUrl: user.linkedin_url || user.linkedinUrl || null,
+    tiktokUrl: user.tiktok_url || user.tiktokUrl || null,
+    twitterUrl: user.twitter_url || user.twitterUrl || null,
+    youtubeUrl: user.youtube_url || user.youtubeUrl || null,
     role: user.role || "user",
     plan: user.plan || "VIP",
-    accessStatus: user.accessStatus || user.access_status || "active",
-    expiresAt: user.expiresAt || user.expires_at || null,
-    refCode: user.refCode || user.ref_code || null,
-    refLink: (user.refCode || user.ref_code) ? `${APP_URL}/?ref=${user.refCode || user.ref_code}` : null,
-    mustChangePassword: user.mustChangePassword || user.must_change_password || false,
-    createdAt: user.createdAt || user.created_at || null,
-    updatedAt: user.updatedAt || user.updated_at || null
+    accessStatus: user.access_status || user.accessStatus || "active",
+    expiresAt: user.expires_at || user.expiresAt || null,
+    refCode: refCode,
+    refLink: buildRefLink(refCode),
+    mustChangePassword: user.must_change_password || user.mustChangePassword || false,
+    sponsorId: user.sponsor_id || null,
+    ebene: user.ebene || null,
+    referredByPublicId: user.referred_by_public_id || null,
+    createdAt: user.created_at || user.createdAt || null,
+    updatedAt: user.updated_at || user.updatedAt || null
   };
 };
 
 const convertUserToCamelCase = normalizeUserResponse;
 
+/**
+ * Creates Supabase payload with ONLY snake_case columns.
+ * Includes sponsor/ebene logic:
+ * - Admin-created / social ads: sponsor_id=369, ebene=1
+ * - Referral users: referred_by_public_id=<id>, sponsor_id=369, ebene=2
+ */
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
   
   const firstName = data.firstName || data.first_name || "";
   const lastName = data.lastName || data.last_name || "";
-  const accessStatus = data.accessStatus || data.access_status || "active";
-  const postalCode = data.postalCode || data.postal_code || null;
-  const bankAccount = data.bankAccount || data.bank_account || null;
-  const facebookUrl = data.facebookUrl || data.facebook_url || null;
-  const instagramUrl = data.instagramUrl || data.instagram_url || null;
-  const linkedinUrl = data.linkedinUrl || data.linkedin_url || null;
-  const tiktokUrl = data.tiktokUrl || data.tiktok_url || null;
-  const twitterUrl = data.twitterUrl || data.twitter_url || null;
-  const youtubeUrl = data.youtubeUrl || data.youtube_url || null;
   const refCode = data.refCode || data.ref_code || generateRefCode(10);
   
+  // Sponsor/ebene logic
+  const referredByPublicId = data.referredByPublicId || data.referred_by_public_id || null;
+  const sponsorId = data.sponsorId || data.sponsor_id || DEFAULT_SPONSOR_ID;
+  const ebene = referredByPublicId ? 2 : (data.ebene || 1);
+  
+  // Access status: inactive by default for new users, active if specified
+  const accessStatus = normalizeAccessStatus(data.accessStatus || data.access_status) || "inactive";
+  
+  // ONLY snake_case columns for Supabase
   const payload = {
     email: (data.email || "").toLowerCase().trim(),
-    firstName: firstName,
     first_name: firstName,
-    lastName: lastName,
     last_name: lastName,
     phone: data.phone || null,
     address: data.address || data.addressLine1 || null,
     city: data.city || null,
     country: data.country || null,
-    postalCode: postalCode,
-    postal_code: postalCode,
-    bankAccount: bankAccount,
-    bank_account: bankAccount,
-    facebookUrl: facebookUrl,
-    facebook_url: facebookUrl,
-    instagramUrl: instagramUrl,
-    instagram_url: instagramUrl,
-    linkedinUrl: linkedinUrl,
-    linkedin_url: linkedinUrl,
-    tiktokUrl: tiktokUrl,
-    tiktok_url: tiktokUrl,
-    twitterUrl: twitterUrl,
-    twitter_url: twitterUrl,
-    youtubeUrl: youtubeUrl,
-    youtube_url: youtubeUrl,
+    postal_code: data.postalCode || data.postal_code || null,
+    bank_account: data.bankAccount || data.bank_account || null,
+    facebook_url: data.facebookUrl || data.facebook_url || null,
+    instagram_url: data.instagramUrl || data.instagram_url || null,
+    linkedin_url: data.linkedinUrl || data.linkedin_url || null,
+    tiktok_url: data.tiktokUrl || data.tiktok_url || null,
+    twitter_url: data.twitterUrl || data.twitter_url || null,
+    youtube_url: data.youtubeUrl || data.youtube_url || null,
     role: normalizeRole(data.role) || "user",
     plan: data.plan || "VIP",
-    accessStatus: accessStatus,
     access_status: accessStatus,
-    refCode: refCode,
     ref_code: refCode,
+    external_id: refCode,
     password_hash: data.password_hash,
     must_change_password: data.must_change_password !== false,
-    mustChangePassword: data.must_change_password !== false,
-    createdAt: now,
+    sponsor_id: sponsorId,
+    ebene: ebene,
+    referred_by_public_id: referredByPublicId,
     created_at: now,
-    updatedAt: now,
     updated_at: now,
     paid: false,
-    source: "admin",
+    source: data.source || "admin",
     payment_method: "none",
     payment_id: "",
     tags: [],
     last_active: now
   };
   
+  // Remove null/undefined values
   const cleanPayload = {};
   for (const [key, value] of Object.entries(payload)) {
     if (value !== null && value !== undefined) {
@@ -193,9 +209,8 @@ const createSupabasePayload = (data) => {
   }
   
   if (IS_DEV) {
-    console.log("[DEV] createSupabasePayload - klucze:", Object.keys(cleanPayload).join(", "));
-    console.log("[DEV] role po normalizacji:", cleanPayload.role);
-    console.log("[DEV] password_hash ustawiony:", !!cleanPayload.password_hash);
+    console.log("[DEV] createSupabasePayload - columns:", Object.keys(cleanPayload).join(", "));
+    console.log("[DEV] sponsor_id:", cleanPayload.sponsor_id, "ebene:", cleanPayload.ebene);
   }
   
   return cleanPayload;
@@ -204,33 +219,35 @@ const createSupabasePayload = (data) => {
 const createUserObjectForMemory = (data) => {
   const now = new Date().toISOString();
   const refCode = data.refCode || data.ref_code || generateRefCode(10);
+  const referredByPublicId = data.referredByPublicId || data.referred_by_public_id || null;
   return {
     id: generateId(),
     email: (data.email || "").toLowerCase().trim(),
-    firstName: data.firstName || "",
-    lastName: data.lastName || "",
+    first_name: data.firstName || data.first_name || "",
+    last_name: data.lastName || data.last_name || "",
     phone: data.phone || null,
     address: data.address || null,
     city: data.city || null,
     country: data.country || null,
-    postalCode: data.postalCode || null,
-    bankAccount: data.bankAccount || null,
-    facebookUrl: data.facebookUrl || null,
-    instagramUrl: data.instagramUrl || null,
-    linkedinUrl: data.linkedinUrl || null,
-    tiktokUrl: data.tiktokUrl || null,
-    twitterUrl: data.twitterUrl || null,
-    youtubeUrl: data.youtubeUrl || null,
+    postal_code: data.postalCode || data.postal_code || null,
+    bank_account: data.bankAccount || data.bank_account || null,
+    facebook_url: data.facebookUrl || data.facebook_url || null,
+    instagram_url: data.instagramUrl || data.instagram_url || null,
+    linkedin_url: data.linkedinUrl || data.linkedin_url || null,
+    tiktok_url: data.tiktokUrl || data.tiktok_url || null,
+    twitter_url: data.twitterUrl || data.twitter_url || null,
+    youtube_url: data.youtubeUrl || data.youtube_url || null,
     role: normalizeRole(data.role) || "user",
     plan: data.plan || "VIP",
-    accessStatus: normalizeAccessStatus(data.accessStatus) || "active",
-    refCode: refCode,
+    access_status: normalizeAccessStatus(data.accessStatus || data.access_status) || "inactive",
     ref_code: refCode,
+    external_id: refCode,
     must_change_password: data.must_change_password !== false,
-    mustChangePassword: data.must_change_password !== false,
-    externalId: data.externalId || generateId(),
-    createdAt: data.createdAt || now,
-    updatedAt: now
+    sponsor_id: data.sponsorId || data.sponsor_id || DEFAULT_SPONSOR_ID,
+    ebene: referredByPublicId ? 2 : (data.ebene || 1),
+    referred_by_public_id: referredByPublicId,
+    created_at: data.createdAt || data.created_at || now,
+    updated_at: now
   };
 };
 
@@ -1300,13 +1317,14 @@ admin.post("/users/:id/send-invite", async (c) => {
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
-    let refCode = user.refCode || user.ref_code || user.external_id;
+    // Use existing ref_code or generate new one
+    let refCode = user.ref_code || user.refCode || user.external_id;
     if (!refCode) {
-      const publicId = user.public_id ?? Math.floor(Math.random() * 1e9);
-      const base = publicId.toString(36).toUpperCase();
-      refCode = `BABA-${base}`;
+      refCode = buildRefCode(user.public_id);
     }
-    const refLink = `${APP_URL}/?ref=${encodeURIComponent(refCode)}`;
+    const refLink = buildRefLink(refCode);
+    
+    console.info(`[ADMIN] send-invite: user.id=${user.id}, public_id=${user.public_id}, refCode=${refCode}`);
 
     const now = new Date().toISOString();
     // DB columns are snake_case only - no camelCase fields

@@ -73,11 +73,17 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `FROM_EMAIL` - Email sender address
 
 ## Dokumentacja
-- `docs/BACKEND_API_DOCUMENTATION.md` - Pelna dokumentacja API v2.3.2 (PL)
+- `docs/BACKEND_API_DOCUMENTATION.md` - Pelna dokumentacja API v2.3.3 (PL)
 - `docs/ADMIN_DOKUMENTACJA.md` - Pelna dokumentacja dla Administratora (PL)
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-19**: v2.3.3 - Added sponsor/ebene logic for referral system
+- **2025-01-19**: ADDED sponsor_id=369, ebene=1 for admin-created users
+- **2025-01-19**: ADDED referred_by_public_id, ebene=2 for referral users
+- **2025-01-19**: ADDED helpers: buildRefCode(public_id), buildRefLink(ref_code)
+- **2025-01-19**: IMPROVED createSupabasePayload() - ONLY snake_case columns
+- **2025-01-19**: IMPROVED normalizeUserResponse() - added sponsorId, ebene, referredByPublicId
 - **2025-01-19**: HOTFIX v2.3.2 - DB writes use snake_case only (no camelCase columns)
 - **2025-01-19**: FIXED send-invite - removed mustChangePassword/accessStatus/refCode/updatedAt from DB writes
 - **2025-01-19**: FIXED push/send - accepts userIds/user_ids/usersIds + target.* variants, returns correct targetCount

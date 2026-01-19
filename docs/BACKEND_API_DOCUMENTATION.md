@@ -1,4 +1,4 @@
-# BabaTV24 Backend API - Dokumentacja v2.3.2
+# BabaTV24 Backend API - Dokumentacja v2.3.3
 
 **Base URL:** `https://babatvbackend.onrender.com`
 
@@ -896,12 +896,20 @@ const sendInvite = async (token: string, userId: string) => {
 
 ---
 
-**Wersja dokumentacji:** 2.3.2
+**Wersja dokumentacji:** 2.3.3
 **Data aktualizacji:** 2025-01-19
 
 ---
 
 ## Changelog
+
+### v2.3.3 (2025-01-19)
+- **ADDED** Logika sponsor/ebene dla systemu poleceń
+- **sponsor_id=369, ebene=1** - dla użytkowników tworzonych przez admina i z social ads
+- **referred_by_public_id, ebene=2** - dla użytkowników z reflinka
+- **Helpery** - buildRefCode(public_id), buildRefLink(ref_code)
+- **createSupabasePayload()** - używa TYLKO kolumn snake_case
+- **normalizeUserResponse()** - dodano sponsorId, ebene, referredByPublicId
 
 ### v2.3.2 (2025-01-19)
 - **CRITICAL FIX** - Wszystkie Supabase .insert()/.update() uzywa TYLKO kolumn snake_case (bez camelCase)
