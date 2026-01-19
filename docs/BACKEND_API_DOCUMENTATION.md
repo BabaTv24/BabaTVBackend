@@ -1,4 +1,4 @@
-# BabaTV24 Backend API - Dokumentacja v2.3.0
+# BabaTV24 Backend API - Dokumentacja v2.3.2
 
 **Base URL:** `https://babatvbackend.onrender.com`
 
@@ -896,12 +896,21 @@ const sendInvite = async (token: string, userId: string) => {
 
 ---
 
-**Wersja dokumentacji:** 2.3.1
-**Data aktualizacji:** 2025-01-13
+**Wersja dokumentacji:** 2.3.2
+**Data aktualizacji:** 2025-01-19
 
 ---
 
 ## Changelog
+
+### v2.3.2 (2025-01-19)
+- **CRITICAL FIX** - Wszystkie Supabase .insert()/.update() uzywa TYLKO kolumn snake_case (bez camelCase)
+- **send-invite** - usunieto mustChangePassword/accessStatus/refCode/updatedAt z zapisu do DB
+- **push/send** - obsluguje warianty: userIds/user_ids/usersIds oraz target.userIds/target.usersIds
+- **push/send** - zwraca poprawne targetCount dla targetowanych powiadomien
+- **PATCH /users/:id** - zapis tylko snake_case: first_name, last_name, access_status, updated_at
+- **import** - usunieto camelCase z payloadow insert/update
+- **resolveUserByParam** - przeniesiony do utils/resolveUserByParam.js (wspolna funkcja)
 
 ### v2.3.1 (2025-01-13)
 - **GET /api/admin/users/:id** - nowy endpoint do pobierania uzytkownika po UUID, publicId lub USR-xxx

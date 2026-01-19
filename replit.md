@@ -25,9 +25,10 @@ Complete backend API for the BabaTV24 application built with Hono (modern web fr
 ├── middleware/
 │   └── authMiddleware.js # JWT authentication middleware
 └── utils/
-    ├── supabase.js      # Supabase client
-    ├── jwt.js           # JWT token utilities
-    └── dataStore.js     # In-memory data storage
+    ├── supabase.js           # Supabase client
+    ├── jwt.js                # JWT token utilities
+    ├── dataStore.js          # In-memory data storage
+    └── resolveUserByParam.js # User ID resolution (UUID/publicId/USR-xxx/ref_code)
 ```
 
 ## API Endpoints
@@ -72,11 +73,17 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `FROM_EMAIL` - Email sender address
 
 ## Dokumentacja
-- `docs/BACKEND_API_DOCUMENTATION.md` - Pelna dokumentacja API v2.3.0 (PL)
+- `docs/BACKEND_API_DOCUMENTATION.md` - Pelna dokumentacja API v2.3.2 (PL)
 - `docs/ADMIN_DOKUMENTACJA.md` - Pelna dokumentacja dla Administratora (PL)
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
+- **2025-01-19**: HOTFIX v2.3.2 - DB writes use snake_case only (no camelCase columns)
+- **2025-01-19**: FIXED send-invite - removed mustChangePassword/accessStatus/refCode/updatedAt from DB writes
+- **2025-01-19**: FIXED push/send - accepts userIds/user_ids/usersIds + target.* variants, returns correct targetCount
+- **2025-01-19**: FIXED PATCH /users/:id - DB columns snake_case only (first_name, last_name, access_status)
+- **2025-01-19**: FIXED import - removed camelCase from insert/update payloads
+- **2025-01-19**: REFACTORED resolveUserByParam moved to utils/resolveUserByParam.js
 - **2025-01-13**: HOTFIX v2.3.1 - Production fix for send-invite and push/send
 - **2025-01-13**: IMPROVED findUserByIdentifier - UUID normalization (with/without hyphens), detailed logging
 - **2025-01-13**: IMPROVED push/send - aliases: subject→title, message→body, deep_link→deeplink
