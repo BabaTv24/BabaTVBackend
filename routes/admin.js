@@ -1319,8 +1319,8 @@ admin.post("/users/:id/send-invite", async (c) => {
 
     const user = result.user;
     
-    // LOG: after resolveUserByParam - found user
-    console.info(`[ADMIN] send-invite: FOUND user.id=${user.id}, public_id=${user.public_id}, resolvedBy=${result.resolvedBy}`);
+    // LOG: after resolveUserByParam - found user with all details
+    console.info(`[ADMIN] send-invite: FOUND user.id=${user.id}, public_id=${user.public_id}, email=${user.email}, resolvedBy=${result.resolvedBy}`);
 
     const tempPassword = generateTempPassword(14);
     const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -1336,11 +1336,12 @@ admin.post("/users/:id/send-invite", async (c) => {
 
     const now = new Date().toISOString();
     // DB columns are snake_case ONLY - no camelCase fields allowed
+    // ONLY: password_hash, must_change_password, access_status, ref_code, updated_at
+    // REMOVED: external_id, mustChangePassword, accessStatus, refCode, updatedAt
     const updateData = {
       password_hash,
       must_change_password: true,
       access_status: "active",
-      external_id: refCode,
       ref_code: refCode,
       updated_at: now
     };

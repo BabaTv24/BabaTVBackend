@@ -1,0 +1,61 @@
+We are in babatv-backend (Node backend). Available scripts: dev = "node --watch index.js", start = "node index.js".
+
+GOAL: Fix production bugs:
+1) send-invite returns 500 because Supabase doesn't recognize camelCase columns like "mustChangePassword" / "updatedAt" / "accessStatus" / "refCode".
+2) Implement sponsor_id=369 and ebene rules.
+3) Ensure SMTP email sending works when configured; fallback returns generatedPassword if SMTP missing.
+
+TASKS:
+
+A) In routes/admin.js (or routes/admin.js equivalent), find endpoint:
+   POST /users/:id/send-invite
+
+B) Ensure resolveUserByParam finds user by:
+   - UUID in column "id"
+   - public_id (bigint) in column "public_id"
+   The endpoint already returns searchedBy in details; keep that behavior.
+
+C) Replace Supabase update payload with ONLY existing snake_case columns.
+   MUST NOT write any camelCase columns.
+   Use ONLY:
+   - password_hash
+   - must_change_password (boolean true)
+   - access_status ('active')
+   - ref_code (string)
+   - updated_at (ISO timestamp)
+
+   Remove: mustChangePassword, accessStatus, refCode, updatedAt, external_id etc.
+
+D) Ref code:
+   - Read existing user.ref_code if present.
+   - If missing, generate a new ref_code (e.g. "BABA-"+base36(public_id) or random).
+   - Store it in ref_code only.
+
+E) Sponsor/Ebene:
+   - On manual admin-created users (if sponsor_id is null) set sponsor_id = 369 and ebene = 1
+   - On users coming from ads/social (no referral) also default sponsor_id=369 and ebene=1
+   - On users created via referral, store referred_by_public_id = <referrer's public_id> and set ebene=2; sponsor_id stays 369
+   NOTE: Do not break existing users; apply defaults only when fields are missing.
+
+F) SMTP:
+   Ensure getMailTransporter reads env vars:
+   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, FROM_EMAIL
+   If transporter missing, return generatedPassword in JSON response to admin (emailSent=false).
+   If transporter works and sendMail succeeds: emailSent=true and DO NOT return generatedPassword.
+
+G) Add logs:
+   console.info for:
+   - normalized param + resolvedBy
+   - user.id + user.public_id + user.email
+   - update payload keys (snake_case only)
+   - SMTP configured or not
+   - sendMail success/failure
+
+H) Run locally in Replit:
+   - npm install
+   - npm run dev
+   Show the exact curl command example for /api/admin/users/:id/send-invite (without real tokens).
+
+Deliverables:
+- Updated code changes (diff-like explanation).
+- Confirm the endpoint no longer references camelCase DB columns anywhere.
