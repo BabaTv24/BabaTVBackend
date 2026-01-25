@@ -1,0 +1,79 @@
+Dodaj endpoint GET /api/public/stats do backendu BabaTV24.
+
+Wymagania:
+- Zwraca JSON: { success:true, totalUsers:<number>, joinedForRef:<number>, refCodeUsed:<string|null> }
+- totalUsers: liczba użytkowników w public.users z pominięciem admina (sponsor_id != ADMIN_SPONSOR_ID) ORAZ/lub role != 'admin' jeśli masz role
+- Jeśli podano query ?ref=XXX:
+   - znajdź sponsora: select id from users where ref_code = XXX limit 1
+   - joinedForRef = count(*) gdzie referred_by_id = sponsor.id
+- Jeśli nie podano ?ref:
+   - joinedForRef = 0
+- Użyj tylko snake_case kolumn: id, sponsor_id, referred_by_id, ref_code, role
+- Dodaj nagłówki no-cache (żeby przeglądarka nie trzymała starego 0).
+- Zarejestruj route w routes/public.js i upewnij się, że w index.js jest podpięty /api/public.
+
+ENV:
+- ADMIN_SPONSOR_ID=<uuid admina 369>
+Jeśli wolisz wkleić kod ręcznie (routes/public.js)
+import { Hono } from "hono";
+import { getSupabaseClient } from "../utils/supabase.js";
+
+const publicRouter = new Hono();
+const USERS_TABLE = process.env.USERS_TABLE || "users";
+const ADMIN_SPONSOR_ID = process.env.ADMIN_SPONSOR_ID || null;
+
+publicRouter.get("/stats", async (c) => {
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  c.header("Pragma", "no-cache");
+  c.header("Expires", "0");
+
+  const supabase = getSupabaseClient();
+  if (!supabase) return c.json({ success: false, error: "Database not configured" }, 500);
+
+  const ref = (c.req.query("ref") || "").trim();
+  let sponsorId = null;
+
+  if (ref) {
+    const { data: sponsor } = await supabase
+      .from(USERS_TABLE)
+      .select("id, ref_code")
+      .eq("ref_code", ref)
+      .maybeSingle();
+    sponsorId = sponsor?.id || null;
+  }
+
+  // total users (excluding admin sponsor if configured)
+  let totalUsers = 0;
+  if (ADMIN_SPONSOR_ID) {
+    const { count } = await supabase
+      .from(USERS_TABLE)
+      .select("*", { count: "exact", head: true })
+      .neq("sponsor_id", ADMIN_SPONSOR_ID);
+    totalUsers = count || 0;
+  } else {
+    const { count } = await supabase
+      .from(USERS_TABLE)
+      .select("*", { count: "exact", head: true });
+    totalUsers = count || 0;
+  }
+
+  // joined for ref
+  let joinedForRef = 0;
+  if (sponsorId) {
+    const { count } = await supabase
+      .from(USERS_TABLE)
+      .select("*", { count: "exact", head: true })
+      .eq("referred_by_id", sponsorId);
+    joinedForRef = count || 0;
+  }
+
+  return c.json({
+    success: true,
+    totalUsers,
+    joinedForRef,
+    refCodeUsed: ref || null,
+  });
+});
+
+export default publicRouter;
+I pamiętaj: w index.js musi być app.route("/api/public", publicRouter).
