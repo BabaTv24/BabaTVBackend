@@ -19,6 +19,7 @@ import videoRoutes from "./routes/video.js";
 import adminRoutes from "./routes/admin.js";
 import publicRoutes from "./routes/public.js";
 import statsRoutes from "./routes/stats.js";
+import entitlementRoutes from "./routes/entitlement.js";
 
 dotenv.config();
 
@@ -67,6 +68,7 @@ app.get("/", (c) => {
       admin: "/api/admin",
       public: "/api/public",
       stats: "/api/stats",
+      entitlement: "/api/entitlement",
     },
   });
 });
@@ -86,6 +88,7 @@ app.route("/api/video", videoRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/public", publicRoutes);
 app.route("/api/stats", statsRoutes);
+app.route("/api/entitlement", entitlementRoutes);
 
 app.onError((err, c) => {
   console.error("SERVER ERROR:", err);

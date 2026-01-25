@@ -1,0 +1,99 @@
+FIX (Backend) – dodaj /api/entitlement/check i podepnij route
+PROMPT do Replit (Backend) – wklej 1:1
+Dodaj brakujący endpoint w backendzie: GET /api/entitlement/check.
+
+Wymagania:
+1) Endpoint ma czytać token z Authorization: Bearer <token> (taki jak login wydaje).
+2) Ma zwrócić 200 i JSON { success:true, allowed:true/false, reason, userPublicId, plan, accessStatus }.
+3) allowed=true gdy:
+   - access_status == "active"
+   - i (expires_at jest NULL albo > teraz)
+4) Jeśli user nieaktywny -> allowed=false reason="inactive"
+5) Jeśli wygasł -> allowed=false reason="expired"
+6) Jeśli brak tokena/niepoprawny -> 401
+7) Dodaj plik routes/entitlement.js i podepnij go w index.js jako app.route("/api/entitlement", entitlement).
+8) Użyj tego samego verifyJwt co w /api/auth/login.
+
+Kod: routes/entitlement.js
+
+Wklej jako nowy plik routes/entitlement.js:
+
+import { Hono } from "hono";
+import { getSupabaseClient } from "../utils/supabase.js";
+import { USERS_TABLE } from "../utils/constants.js";
+import { verifyJwt } from "../utils/jwt.js"; // MUSI być ta sama funkcja co login
+
+const entitlement = new Hono();
+
+entitlement.get("/check", async (c) => {
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return c.json({ success: false, error: "Database not configured" }, 500);
+
+    const auth = c.req.header("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return c.json({ success: false, error: "Missing token" }, 401);
+
+    const payload = verifyJwt(token);
+    const userId = payload?.userId || payload?.id;
+    if (!userId) return c.json({ success: false, error: "Invalid token" }, 401);
+
+    const { data: user, error } = await supabase
+      .from(USERS_TABLE)
+      .select("id, public_id, plan, access_status, expires_at")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error || !user) return c.json({ success: false, error: "User not found" }, 401);
+
+    const accessStatus = (user.access_status || "").toLowerCase();
+    if (accessStatus !== "active") {
+      return c.json({
+        success: true,
+        allowed: false,
+        reason: "inactive",
+        userPublicId: user.public_id,
+        plan: user.plan || null,
+        accessStatus: user.access_status || null,
+      });
+    }
+
+    const expiresAt = user.expires_at ? new Date(user.expires_at).getTime() : null;
+    const now = Date.now();
+
+    if (expiresAt && expiresAt <= now) {
+      return c.json({
+        success: true,
+        allowed: false,
+        reason: "expired",
+        userPublicId: user.public_id,
+        plan: user.plan || null,
+        accessStatus: user.access_status || null,
+        expiresAt: user.expires_at,
+      });
+    }
+
+    return c.json({
+      success: true,
+      allowed: true,
+      reason: "ok",
+      userPublicId: user.public_id,
+      plan: user.plan || null,
+      accessStatus: user.access_status || null,
+      expiresAt: user.expires_at || null,
+    });
+  } catch (e) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
+export default entitlement;
+
+Kod: podepnij route w index.js
+
+W swoim index.js dopisz import i mount:
+
+import entitlement from "./routes/entitlement.js";
+
+// ...tam gdzie są inne app.route(...)
+app.route("/api/entitlement", entitlement);
