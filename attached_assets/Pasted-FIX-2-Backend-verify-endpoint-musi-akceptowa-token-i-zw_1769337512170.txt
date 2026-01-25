@@ -1,0 +1,48 @@
+FIX #2 (Backend) – verify endpoint musi akceptować token i zwracać spójny user
+
+Masz w backendzie endpoint verify-2fa, ale userowa weryfikacja zwykle jest /api/auth/verify albo /api/users/me. U Ciebie w UI jest “Błąd weryfikacji”, więc /watch robi request do verify.
+
+PROMPT do Replit Backend (wklej 1:1)
+Napraw weryfikację usera dla /watch:
+
+1) Dodaj endpoint GET /api/auth/me (lub /api/users/me – używany przez frontend)
+2) Czytaj token z Authorization: Bearer <token>
+3) Token to JWT podpisany APP_JWT_SECRET (ten sam co przy loginie)
+4) Z tokena bierz userId i pobieraj usera z tabeli users
+5) Jeśli user.access_status != 'active' -> 403
+6) Jeśli must_change_password == true -> 409 { mustChangePassword:true }
+7) Zwróć JSON: { success:true, user:{ id, public_id, email, plan, role, access_status } }
+
+Minimalny kod – GET /api/auth/me
+auth.get("/me", async (c) => {
+  try {
+    const supabase = getSupabaseClient();
+    if (!supabase) return c.json({ success:false, error:"Database not configured" }, 500);
+
+    const auth = c.req.header("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return c.json({ success:false, error:"Missing token" }, 401);
+
+    const payload = verifyJwt(token); // funkcja jak w login
+    const userId = payload?.userId || payload?.id;
+    if (!userId) return c.json({ success:false, error:"Invalid token" }, 401);
+
+    const { data: user, error } = await supabase
+      .from(USERS_TABLE)
+      .select("id, public_id, email, plan, role, access_status, must_change_password")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error || !user) return c.json({ success:false, error:"User not found" }, 401);
+
+    if ((user.access_status || "").toLowerCase() !== "active")
+      return c.json({ success:false, error:"Access inactive" }, 403);
+
+    if (user.must_change_password === true)
+      return c.json({ success:false, mustChangePassword:true }, 409);
+
+    return c.json({ success:true, user });
+  } catch (e) {
+    return c.json({ success:false, error:e.message }, 500);
+  }
+});

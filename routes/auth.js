@@ -319,7 +319,7 @@ auth.get('/me', async (c) => {
   try {
     const authHeader = c.req.header('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return c.json({ success: false, error: 'No token provided' }, 401)
+      return c.json({ success: false, error: 'Missing token' }, 401)
     }
 
     const token = authHeader.replace('Bearer ', '')
@@ -331,6 +331,11 @@ auth.get('/me', async (c) => {
       return c.json({ success: false, error: 'Invalid token' }, 401)
     }
 
+    const userId = decoded.sub || decoded.userId || decoded.id
+    if (!userId) {
+      return c.json({ success: false, error: 'Invalid token payload' }, 401)
+    }
+
     const supabase = getSupabaseClient()
     if (!supabase) {
       return c.json({ success: false, error: 'Database not configured' }, 500)
@@ -338,12 +343,23 @@ auth.get('/me', async (c) => {
 
     const { data: user, error } = await supabase
       .from(USERS_TABLE)
-      .select('id, public_id, email, first_name, last_name, role, access_status, ref_code, sponsor_id, sponsor_public_id, level, must_change_password')
-      .eq('id', decoded.sub)
+      .select('id, public_id, email, first_name, last_name, role, plan, access_status, ref_code, sponsor_id, sponsor_public_id, level, must_change_password')
+      .eq('id', userId)
       .maybeSingle()
 
     if (error || !user) {
-      return c.json({ success: false, error: 'User not found' }, 404)
+      return c.json({ success: false, error: 'User not found' }, 401)
+    }
+
+    const accessStatus = (user.access_status || '').toLowerCase()
+    if (accessStatus !== 'active') {
+      console.warn(`[AUTH] /me access denied: user ${user.email} has access_status=${user.access_status}`)
+      return c.json({ success: false, error: 'Access inactive' }, 403)
+    }
+
+    if (user.must_change_password === true) {
+      console.info(`[AUTH] /me: user ${user.email} must change password`)
+      return c.json({ success: false, mustChangePassword: true }, 409)
     }
 
     return c.json({
@@ -355,6 +371,7 @@ auth.get('/me', async (c) => {
         firstName: user.first_name,
         lastName: user.last_name,
         role: user.role || 'user',
+        plan: user.plan || 'VIP',
         accessStatus: user.access_status,
         mustChangePassword: !!user.must_change_password,
         refCode: user.ref_code,
