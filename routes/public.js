@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { createClient } from "../utils/supabase.js";
 
 const USERS_TABLE = process.env.SUPABASE_USERS_TABLE || "users";
-const ADMIN_SPONSOR_ID = process.env.ADMIN_SPONSOR_ID || null;
 
 const getSupabaseClient = () => {
   try {
@@ -28,14 +27,10 @@ publicRoutes.get("/stats", async (c) => {
       console.info("[PUBLIC] /stats - no Supabase, returning zeros");
       return c.json({ 
         success: true, 
-        totalUsers: 0,
+        usersCount: 0,
+        latestPublicId: 0,
         joinedForRef: 0,
-        refCodeUsed: null,
-        data: {
-          usersCount: 0,
-          maxPublicId: 0,
-          updatedAt: new Date().toISOString()
-        }
+        refCodeUsed: null
       });
     }
 
@@ -52,26 +47,36 @@ publicRoutes.get("/stats", async (c) => {
       console.info(`[PUBLIC] /stats ref=${ref}, sponsorId=${sponsorId || "not found"}`);
     }
 
-    let totalUsers = 0;
-    if (ADMIN_SPONSOR_ID) {
-      const { count, error: countError } = await supabase
-        .from(USERS_TABLE)
-        .select("*", { count: "exact", head: true })
-        .neq("sponsor_id", ADMIN_SPONSOR_ID);
-      if (countError) {
-        console.error("[PUBLIC] GET /stats count error:", countError.message);
-      }
-      totalUsers = count || 0;
-    } else {
-      const { count, error: countError } = await supabase
-        .from(USERS_TABLE)
-        .select("*", { count: "exact", head: true });
-      if (countError) {
-        console.error("[PUBLIC] GET /stats count error:", countError.message);
-      }
-      totalUsers = count || 0;
+    // usersCount (excluding admins)
+    const { count: usersCountRaw, error: countError } = await supabase
+      .from(USERS_TABLE)
+      .select("*", { count: "exact", head: true })
+      .neq("role", "admin");
+
+    if (countError) {
+      console.error("[PUBLIC] GET /stats count error:", countError.message);
     }
 
+    const usersCount = usersCountRaw || 0;
+
+    // latestPublicId = MAX(public_id) excluding admins and NULL values
+    const { data: latestRow, error: latestErr } = await supabase
+      .from(USERS_TABLE)
+      .select("public_id")
+      .neq("role", "admin")
+      .not("public_id", "is", null)
+      .order("public_id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestErr) {
+      console.error("[PUBLIC] GET /stats latestPublicId error:", latestErr.message);
+      return c.json({ success: false, error: "Stats query failed", details: latestErr.message }, 500);
+    }
+
+    const latestPublicId = latestRow?.public_id ?? 0;
+
+    // joinedForRef - count users referred by sponsor
     let joinedForRef = 0;
     if (sponsorId) {
       const { count, error: refError } = await supabase
@@ -84,31 +89,14 @@ publicRoutes.get("/stats", async (c) => {
       joinedForRef = count || 0;
     }
 
-    const { data: maxRow, error: maxError } = await supabase
-      .from(USERS_TABLE)
-      .select("public_id")
-      .order("public_id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    console.info(`[PUBLIC] /stats - usersCount=${usersCount}, latestPublicId=${latestPublicId}, joinedForRef=${joinedForRef}`);
 
-    if (maxError) {
-      console.error("[PUBLIC] GET /stats max error:", maxError.message);
-    }
-
-    const maxPublicId = maxRow?.public_id || 0;
-
-    console.info(`[PUBLIC] /stats - totalUsers=${totalUsers}, joinedForRef=${joinedForRef}, maxPublicId=${maxPublicId}`);
-
-    return c.json({ 
+    return c.json({
       success: true,
-      totalUsers,
+      usersCount,
+      latestPublicId,
       joinedForRef,
-      refCodeUsed: ref || null,
-      data: {
-        usersCount: totalUsers,
-        maxPublicId,
-        updatedAt: new Date().toISOString()
-      }
+      refCodeUsed: ref || null
     });
   } catch (e) {
     console.error("[PUBLIC] GET /stats crash:", e.message);
