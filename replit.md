@@ -78,9 +78,17 @@ Server runs on `PORT` environment variable or `5000` by default.
 - `docs/API_REFERENCE.md` - Szybka referencja API (PL)
 
 ## Recent Changes
-- **2025-01-19**: v2.3.3 - Added sponsor/ebene logic for referral system
-- **2025-01-19**: ADDED sponsor_id=369, ebene=1 for admin-created users
-- **2025-01-19**: ADDED referred_by_public_id, ebene=2 for referral users
+- **2025-01-25**: v2.3.4 - MAJOR UPDATE: ebene→level, added change-password, JWT expiry per role
+- **2025-01-25**: RENAMED ebene → level throughout codebase (Supabase column: level)
+- **2025-01-25**: RENAMED referred_by_public_id → referred_by_id (Supabase column: referred_by_id)
+- **2025-01-25**: ADDED POST /api/auth/change-password - requires currentPassword, newPassword, sets must_change_password=false
+- **2025-01-25**: IMPROVED JWT expiry: 7d for users, 5m for admin role
+- **2025-01-25**: ADDED ADMIN_SPONSOR_ID env var (default: 369)
+- **2025-01-25**: ADDED build script to package.json: "build": "echo no-build"
+- **2025-01-25**: IMPROVED send-invite: now includes sponsor_id and level=1 in update payload
+- **2025-01-19**: v2.3.3 - Added sponsor/level logic for referral system
+- **2025-01-19**: ADDED sponsor_id=369, level=1 for admin-created users
+- **2025-01-19**: ADDED referred_by_id, level=2 for referral users
 - **2025-01-19**: ADDED helpers: buildRefCode(public_id), buildRefLink(ref_code)
 - **2025-01-19**: IMPROVED createSupabasePayload() - ONLY snake_case columns
 - **2025-01-19**: IMPROVED normalizeUserResponse() - added sponsorId, ebene, referredByPublicId

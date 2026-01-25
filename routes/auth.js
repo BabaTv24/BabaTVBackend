@@ -8,6 +8,7 @@ const auth = new Hono()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'babatv24-secret-key-change-in-production'
 const USERS_TABLE = process.env.USERS_TABLE || 'users'
+const ADMIN_SPONSOR_ID = process.env.ADMIN_SPONSOR_ID || '369'
 
 const getSupabaseClient = () => {
   try {
@@ -44,10 +45,8 @@ auth.post('/register', async (c) => {
 
     const password_hash = await bcrypt.hash(password, 10)
 
-    let referrer = null
-    let sponsorId = 369
-    let ebene = 1
-    let referredByPublicId = null
+    let referredById = null
+    let level = 1
 
     if (refCode) {
       const { data: referrerUser } = await supabase
@@ -57,15 +56,15 @@ auth.post('/register', async (c) => {
         .maybeSingle()
 
       if (referrerUser) {
-        referrer = referrerUser
-        referredByPublicId = referrerUser.public_id
-        ebene = 2
+        referredById = referrerUser.id
+        level = 2
       }
     }
 
     const now = new Date().toISOString()
     const newRefCode = `BABA-${Date.now().toString(36).toUpperCase()}`
 
+    // DB columns are snake_case ONLY
     const userData = {
       email: normalizedEmail,
       password_hash,
@@ -77,9 +76,9 @@ auth.post('/register', async (c) => {
       must_change_password: false,
       ref_code: newRefCode,
       external_id: newRefCode,
-      sponsor_id: sponsorId,
-      ebene: ebene,
-      referred_by_public_id: referredByPublicId,
+      sponsor_id: ADMIN_SPONSOR_ID,
+      level: level,
+      referred_by_id: referredById,
       source: refCode ? 'referral' : 'signup',
       created_at: now,
       updated_at: now
@@ -145,7 +144,7 @@ auth.post('/login', async (c) => {
 
     const { data: user, error } = await supabase
       .from(USERS_TABLE)
-      .select('id, public_id, email, password_hash, must_change_password, access_status, role, sponsor_id, sponsor_public_id, ebene, ref_code, first_name, last_name')
+      .select('id, public_id, email, password_hash, must_change_password, access_status, role, sponsor_id, sponsor_public_id, level, ref_code, first_name, last_name')
       .eq('email', normalizedEmail)
       .maybeSingle()
 
@@ -171,21 +170,25 @@ auth.post('/login', async (c) => {
       return c.json({ success: false, error: 'Invalid credentials' }, 401)
     }
 
+    // JWT expiry: 7d for users, 5m for admins
+    const userRole = user.role || 'user'
+    const tokenExpiry = userRole === 'admin' ? '5m' : '7d'
+
     const token = jwt.sign(
       {
         sub: user.id,
-        role: user.role || 'user',
+        role: userRole,
         email: user.email,
         public_id: user.public_id,
         sponsor_public_id: user.sponsor_public_id,
         sponsor_id: user.sponsor_id,
-        ebene: user.ebene
+        level: user.level
       },
       JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: tokenExpiry }
     )
 
-    console.info(`[AUTH] Login SUCCESS for: ${normalizedEmail}, public_id=${user.public_id}`)
+    console.info(`[AUTH] Login SUCCESS for: ${normalizedEmail}, public_id=${user.public_id}, role=${userRole}, tokenExpiry=${tokenExpiry}`)
 
     return c.json({
       success: true,
@@ -196,16 +199,100 @@ auth.post('/login', async (c) => {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        role: user.role || 'user',
+        role: userRole,
         mustChangePassword: !!user.must_change_password,
         sponsorPublicId: user.sponsor_public_id,
         sponsorId: user.sponsor_id,
-        ebene: user.ebene,
+        level: user.level,
         refCode: user.ref_code
-      }
+      },
+      mustChangePassword: !!user.must_change_password
     })
   } catch (error) {
     console.error('[AUTH] Login error:', error.message)
+    return c.json({ success: false, error: error.message }, 500)
+  }
+})
+
+auth.post('/change-password', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json({ success: false, error: 'No token provided' }, 401)
+    }
+
+    const token = authHeader.replace('Bearer ', '')
+    
+    let decoded
+    try {
+      decoded = jwt.verify(token, JWT_SECRET)
+    } catch {
+      return c.json({ success: false, error: 'Invalid or expired token' }, 401)
+    }
+
+    const { currentPassword, newPassword } = await c.req.json()
+
+    if (!currentPassword || !newPassword) {
+      return c.json({ success: false, error: 'Current password and new password are required' }, 400)
+    }
+
+    if (newPassword.length < 8) {
+      return c.json({ success: false, error: 'New password must be at least 8 characters' }, 400)
+    }
+
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      return c.json({ success: false, error: 'Database not configured' }, 500)
+    }
+
+    console.info(`[AUTH] Change password attempt for user.id=${decoded.sub}`)
+
+    const { data: user, error: fetchError } = await supabase
+      .from(USERS_TABLE)
+      .select('id, email, password_hash')
+      .eq('id', decoded.sub)
+      .maybeSingle()
+
+    if (fetchError || !user) {
+      console.warn(`[AUTH] Change password failed: user not found for id=${decoded.sub}`)
+      return c.json({ success: false, error: 'User not found' }, 404)
+    }
+
+    // Verify current password
+    const currentValid = await bcrypt.compare(currentPassword, user.password_hash || '')
+    if (!currentValid) {
+      console.warn(`[AUTH] Change password failed: invalid current password for ${user.email}`)
+      return c.json({ success: false, error: 'Current password is incorrect' }, 401)
+    }
+
+    // Hash new password
+    const newPasswordHash = await bcrypt.hash(newPassword, 10)
+    const now = new Date().toISOString()
+
+    // Update password_hash and set must_change_password = false
+    const { error: updateError } = await supabase
+      .from(USERS_TABLE)
+      .update({
+        password_hash: newPasswordHash,
+        must_change_password: false,
+        updated_at: now
+      })
+      .eq('id', user.id)
+
+    if (updateError) {
+      console.error(`[AUTH] Change password DB error for ${user.email}:`, updateError.message)
+      return c.json({ success: false, error: 'Failed to update password' }, 500)
+    }
+
+    console.info(`[AUTH] Change password SUCCESS for ${user.email}`)
+
+    return c.json({
+      success: true,
+      message: 'Password changed successfully',
+      mustChangePassword: false
+    })
+  } catch (error) {
+    console.error('[AUTH] Change password error:', error.message)
     return c.json({ success: false, error: error.message }, 500)
   }
 })
@@ -251,7 +338,7 @@ auth.get('/me', async (c) => {
 
     const { data: user, error } = await supabase
       .from(USERS_TABLE)
-      .select('id, public_id, email, first_name, last_name, role, access_status, ref_code, sponsor_id, sponsor_public_id, ebene, must_change_password')
+      .select('id, public_id, email, first_name, last_name, role, access_status, ref_code, sponsor_id, sponsor_public_id, level, must_change_password')
       .eq('id', decoded.sub)
       .maybeSingle()
 
@@ -273,7 +360,7 @@ auth.get('/me', async (c) => {
         refCode: user.ref_code,
         sponsorId: user.sponsor_id,
         sponsorPublicId: user.sponsor_public_id,
-        ebene: user.ebene
+        level: user.level
       }
     })
   } catch (error) {

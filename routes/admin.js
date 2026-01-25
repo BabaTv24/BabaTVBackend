@@ -133,8 +133,8 @@ const normalizeUserResponse = (user) => {
     refLink: buildRefLink(refCode),
     mustChangePassword: user.must_change_password || user.mustChangePassword || false,
     sponsorId: user.sponsor_id || null,
-    ebene: user.ebene || null,
-    referredByPublicId: user.referred_by_public_id || null,
+    level: user.level || null,
+    referredById: user.referred_by_id || user.referred_by_public_id || null,
     createdAt: user.created_at || user.createdAt || null,
     updatedAt: user.updated_at || user.updatedAt || null
   };
@@ -144,9 +144,9 @@ const convertUserToCamelCase = normalizeUserResponse;
 
 /**
  * Creates Supabase payload with ONLY snake_case columns.
- * Includes sponsor/ebene logic:
- * - Admin-created / social ads: sponsor_id=369, ebene=1
- * - Referral users: referred_by_public_id=<id>, sponsor_id=369, ebene=2
+ * Includes sponsor/level logic:
+ * - Admin-created / social ads: sponsor_id=369, level=1
+ * - Referral users: referred_by_id=<id>, sponsor_id=369, level=2
  */
 const createSupabasePayload = (data) => {
   const now = new Date().toISOString();
@@ -155,10 +155,10 @@ const createSupabasePayload = (data) => {
   const lastName = data.lastName || data.last_name || "";
   const refCode = data.refCode || data.ref_code || generateRefCode(10);
   
-  // Sponsor/ebene logic
-  const referredByPublicId = data.referredByPublicId || data.referred_by_public_id || null;
+  // Sponsor/level logic
+  const referredById = data.referredById || data.referred_by_id || null;
   const sponsorId = data.sponsorId || data.sponsor_id || DEFAULT_SPONSOR_ID;
-  const ebene = referredByPublicId ? 2 : (data.ebene || 1);
+  const level = referredById ? 2 : (data.level || 1);
   
   // Access status: inactive by default for new users, active if specified
   const accessStatus = normalizeAccessStatus(data.accessStatus || data.access_status) || "inactive";
@@ -188,8 +188,8 @@ const createSupabasePayload = (data) => {
     password_hash: data.password_hash,
     must_change_password: data.must_change_password !== false,
     sponsor_id: sponsorId,
-    ebene: ebene,
-    referred_by_public_id: referredByPublicId,
+    level: level,
+    referred_by_id: referredById,
     created_at: now,
     updated_at: now,
     paid: false,
@@ -210,7 +210,7 @@ const createSupabasePayload = (data) => {
   
   if (IS_DEV) {
     console.log("[DEV] createSupabasePayload - columns:", Object.keys(cleanPayload).join(", "));
-    console.log("[DEV] sponsor_id:", cleanPayload.sponsor_id, "ebene:", cleanPayload.ebene);
+    console.log("[DEV] sponsor_id:", cleanPayload.sponsor_id, "level:", cleanPayload.level);
   }
   
   return cleanPayload;
@@ -219,7 +219,7 @@ const createSupabasePayload = (data) => {
 const createUserObjectForMemory = (data) => {
   const now = new Date().toISOString();
   const refCode = data.refCode || data.ref_code || generateRefCode(10);
-  const referredByPublicId = data.referredByPublicId || data.referred_by_public_id || null;
+  const referredById = data.referredById || data.referred_by_id || data.referredByPublicId || data.referred_by_public_id || null;
   return {
     id: generateId(),
     email: (data.email || "").toLowerCase().trim(),
@@ -244,8 +244,8 @@ const createUserObjectForMemory = (data) => {
     external_id: refCode,
     must_change_password: data.must_change_password !== false,
     sponsor_id: data.sponsorId || data.sponsor_id || DEFAULT_SPONSOR_ID,
-    ebene: referredByPublicId ? 2 : (data.ebene || 1),
-    referred_by_public_id: referredByPublicId,
+    level: referredById ? 2 : (data.level || 1),
+    referred_by_id: referredById,
     created_at: data.createdAt || data.created_at || now,
     updated_at: now
   };
@@ -1335,6 +1335,9 @@ admin.post("/users/:id/send-invite", async (c) => {
     const refLink = buildRefLink(refCode);
 
     const now = new Date().toISOString();
+    // ADMIN_SPONSOR_ID from ENV or default admin UUID
+    const ADMIN_SPONSOR_ID = process.env.ADMIN_SPONSOR_ID || "369";
+    
     // DB columns are snake_case ONLY - no camelCase fields allowed
     // REMOVED: mustChangePassword, accessStatus, refCode, updatedAt (camelCase)
     const updateData = {
@@ -1343,6 +1346,8 @@ admin.post("/users/:id/send-invite", async (c) => {
       access_status: "active",
       ref_code: refCode,
       external_id: refCode,
+      sponsor_id: ADMIN_SPONSOR_ID,
+      level: 1,
       updated_at: now
     };
     
@@ -1584,7 +1589,7 @@ admin.post("/users/import", async (c) => {
         const password_hash = await bcrypt.hash(tempPassword, 10);
         const refCode = generateRefCode(10);
 
-        // Include sponsor_id and ebene for new users via import
+        // Include sponsor_id and level for new users via import
         const insertData = {
           ...userData,
           password_hash,
@@ -1592,7 +1597,7 @@ admin.post("/users/import", async (c) => {
           external_id: refCode,
           must_change_password: true,
           sponsor_id: row.sponsor_id || row.sponsorId || DEFAULT_SPONSOR_ID,
-          ebene: row.ebene || 1,
+          level: row.level || 1,
           source: "import",
           created_at: new Date().toISOString()
         };
